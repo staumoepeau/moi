@@ -1,0 +1,198 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "allow_events_in_timeline": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-08-21 23:40:50.105516",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "section_break_sgsn",
+  "employee_name",
+  "column_break_sxzr",
+  "employee",
+  "section_break_qgcq",
+  "experience_rating",
+  "q2",
+  "q3",
+  "q4",
+  "q5",
+  "column_break_uwga",
+  "q6",
+  "q7",
+  "q8",
+  "q9",
+  "q10",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_sgsn",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Employee"
+  },
+  {
+   "fieldname": "column_break_sxzr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_qgcq",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "experience_rating",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Q1. How would you rate your experience with the HR services?",
+   "options": "\nVery satisfied\nSatisfied\nNeither Satisfied nor Dissatisfied\nDissatisfied\nVery Dissatisfied",
+   "reqd": 1
+  },
+  {
+   "fieldname": "q2",
+   "fieldtype": "Table MultiSelect",
+   "label": "Q2. Which of the following words would you use to describe the HR services within the Ministry of Infrastructure? Select all that apply.",
+   "options": "Survey Q2 Detail"
+  },
+  {
+   "fieldname": "q3",
+   "fieldtype": "Select",
+   "label": "Q3. How well do our services meet your needs?",
+   "options": "\nExtremely well\nVery well\nSomewhat well\nNot so well\nNot at all well"
+  },
+  {
+   "fieldname": "q4",
+   "fieldtype": "Select",
+   "label": "Q4. Did the HR service resolve your inquiry to your satisfaction?",
+   "options": "\nVery satisfied\nSatisfied\nNeither satisfied nor dissatisfied\nDissatisfied\nVery dissatisfied"
+  },
+  {
+   "fieldname": "q5",
+   "fieldtype": "Select",
+   "label": "Q5. Did HR team keep you informed about the status of your inquiries or issues?",
+   "options": "\nAlways\nUsually\nSometimes\nSeldom\nNever"
+  },
+  {
+   "fieldname": "q6",
+   "fieldtype": "Select",
+   "label": "Q6. How would you rate the quality of the HR Services?",
+   "options": "\nVery high quality\nHigh quality\nNeither high nor low quality\nLow quality\nVery low quality"
+  },
+  {
+   "fieldname": "q7",
+   "fieldtype": "Select",
+   "label": "Q7. How long have you been an employee of the Ministry of Infrastructure?",
+   "options": "\nLess than a year\nLess than six months\nSix months to a year\n1 - 2 years\n3 or more years"
+  },
+  {
+   "description": "1 - Not Satisfied                                                     5 - Extremely Satisfied",
+   "fieldname": "q8",
+   "fieldtype": "Select",
+   "label": "Q8. On a scale of 1 to 5 how would you rate the responsiveness of our HR service?",
+   "options": "\n1\n2\n3\n4\n5"
+  },
+  {
+   "fieldname": "q9",
+   "fieldtype": "Select",
+   "label": "Q9. Overall, how satisfied or dissatisfied are you with the Ministry of Infrastructure?",
+   "options": "\nVery satisfied\nSomewhat satisfied\nNeither satisfied nor dissatisfied\nSomewhat dissatisfied\nVery dissatisfied"
+  },
+  {
+   "fieldname": "q10",
+   "fieldtype": "Small Text",
+   "label": "Q10. Do you have any other comments, questions, or concerns?"
+  },
+  {
+   "fieldname": "column_break_uwga",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Survey",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "SV-.YY.MM.######"
+  }
+ ],
+ "grid_page_length": 50,
+ "hide_toolbar": 1,
+ "links": [
+  {
+   "link_doctype": "Employee",
+   "link_fieldname": "employee"
+  }
+ ],
+ "make_attachments_public": 1,
+ "modified": "2025-09-04 04:04:06.623305",
+ "modified_by": "Administrator",
+ "module": "MOI HR",
+ "name": "Survey",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "route": "survey",
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,165 @@
+{
+ "actions": [],
+ "autoname": "HR-EMP-ACR-.YYYY.-.#####",
+ "creation": "2025-10-21 09:33:04.772139",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "employee",
+  "employee_name",
+  "department",
+  "column_break_3",
+  "company",
+  "new_company",
+  "location",
+  "details_section",
+  "acting_role",
+  "amended_from",
+  "column_break_zpxs",
+  "acting_start_date",
+  "column_break_rmtc",
+  "acting_end_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "employee.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "new_company",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "New Company",
+   "options": "Company"
+  },
+  {
+   "bold": 1,
+   "fetch_from": "employee.department",
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Employee Acting Details"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Employee Acting Appointment",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "acting_role",
+   "fieldtype": "Link",
+   "label": "Acting Role",
+   "options": "Role"
+  },
+  {
+   "fieldname": "column_break_zpxs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "acting_start_date",
+   "fieldtype": "Date",
+   "label": "Acting Start Date"
+  },
+  {
+   "fieldname": "column_break_rmtc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "acting_end_date",
+   "fieldtype": "Date",
+   "label": "Acting End Date"
+  },
+  {
+   "fetch_from": "employee.branch",
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Location"
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-10-21 13:58:14.796862",
+ "modified_by": "Administrator",
+ "module": "MOI HR",
+ "name": "Employee Acting Appointment",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR User",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "employee_name",
+ "track_changes": 1
+}

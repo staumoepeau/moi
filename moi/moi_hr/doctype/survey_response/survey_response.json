@@ -1,0 +1,56 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-03 23:21:57.115107",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "survey",
+  "user",
+  "responses"
+ ],
+ "fields": [
+  {
+   "fieldname": "survey",
+   "fieldtype": "Data",
+   "label": "Survey"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Data",
+   "label": "User"
+  },
+  {
+   "fieldname": "responses",
+   "fieldtype": "Table",
+   "label": "Responses",
+   "options": "Survey Question"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-03 23:23:54.967626",
+ "modified_by": "Administrator",
+ "module": "MOI HR",
+ "name": "Survey Response",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
