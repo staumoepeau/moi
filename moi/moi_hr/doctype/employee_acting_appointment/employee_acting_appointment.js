@@ -5,7 +5,7 @@ frappe.ui.form.on("Employee Acting Appointment", {
     on_submit: function(frm) {
 
         frappe.call({
-            method: "hr.api.employee.add_employee_role",
+            method: "moi.api.employee.add_employee_role",
             args: {
                 employee: frm.doc.employee,  // use linked employee, not current doc name
                 role: frm.doc.acting_role,
