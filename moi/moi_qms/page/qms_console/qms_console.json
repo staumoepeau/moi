@@ -1,0 +1,19 @@
+{
+ "content": null,
+ "creation": "2026-02-07 20:10:02.036363",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-02-07 20:10:02.036363",
+ "modified_by": "Administrator",
+ "module": "MOI HR",
+ "name": "qms_console",
+ "owner": "Administrator",
+ "page_name": "qms_console",
+ "roles": [],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "qms_console"
+}

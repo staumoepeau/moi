@@ -1,0 +1,82 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:QC-{###}",
+ "creation": "2026-02-04 14:55:10.229783",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ticket_number",
+  "ticket_id",
+  "called_time",
+  "number_of_calls",
+  "column_break_ryjh",
+  "audio_file",
+  "department"
+ ],
+ "fields": [
+  {
+   "fieldname": "ticket_number",
+   "fieldtype": "Data",
+   "label": "Ticket Number"
+  },
+  {
+   "fieldname": "ticket_id",
+   "fieldtype": "Link",
+   "label": "Ticket Id",
+   "options": "Queue"
+  },
+  {
+   "fieldname": "called_time",
+   "fieldtype": "Datetime",
+   "label": "Called Time"
+  },
+  {
+   "fieldname": "number_of_calls",
+   "fieldtype": "Int",
+   "label": "Number of calls"
+  },
+  {
+   "fieldname": "column_break_ryjh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "audio_file",
+   "fieldtype": "Attach",
+   "label": "Audio file"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Departmennt"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-04 14:55:19.400260",
+ "modified_by": "Administrator",
+ "module": "MOI QMS",
+ "name": "MOI QMS Queue Call",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

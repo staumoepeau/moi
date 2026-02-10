@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "allow_rename": 1,
+ "autoname": "field:service_name",
+ "creation": "2026-02-07 15:42:02.503923",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "service_name",
+  "service_code",
+  "avg_time",
+  "is_active"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Service Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "service_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Service Code",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "avg_time",
+   "fieldtype": "Int",
+   "label": "Avg. Service Time (Mins)"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  }
+ ],
+ "hide_toolbar": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-10 10:45:45.833487",
+ "modified_by": "Administrator",
+ "module": "MOI QMS",
+ "name": "QMS Service",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "service_name"
+}
