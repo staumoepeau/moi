@@ -40,7 +40,7 @@ export function HRForms() {
       background-color: #f9fafb; min-height: 100vh;
     }
     .hr-header { border-bottom: 2px solid #e5e7eb; padding-bottom: 24px; margin-bottom: 40px; }
-    .hr-header h1 { color: #111827; font-size: 2.25rem; font-weight: 800; margin: 0; }
+    .hr-header h2 { color: #111827; font-size: 2.0rem; font-weight: 800; margin: 0; }
     .hr-header p { color: #6b7280; font-size: 1.125rem; margin-top: 8px; }
     
     .category-section { margin-bottom: 48px; }
@@ -59,7 +59,7 @@ export function HRForms() {
     .doc-card:hover { border-color: #3b82f6; box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.1); transform: translateY(-2px); }
 
     .doc-icon {
-      width: 44px; height: 56px; border-radius: 6px; display: flex; align-items: center; 
+      width: 40px; height: 40px; border-radius: 6px; display: flex; align-items: center; 
       justify-content: center; font-weight: 800; font-size: 10px; flex-shrink: 0;
       box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid transparent;
     }
@@ -86,8 +86,8 @@ export function HRForms() {
       <style>{HrStyles}</style>
       
       <header className="hr-header">
-        <h1>HR Forms & Documents</h1>
-        <p>Official Ministry of Infrastructure resources for employees.</p>
+        <h2>HR Forms & Documents</h2>
+        <p>Ministry of Infrastructure Resources for Employees.</p>
       </header>
 
       {error ? (

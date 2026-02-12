@@ -4,6 +4,7 @@ app_publisher = "Sione & Finau Hoi Taumoepeau and TMP TECHNOLOGY"
 app_description = "Ministry of Infrastructure Apps"
 app_email = "sione.taumoepeau@gmail.com"
 app_license = "mit"
+app_home = "/desk/"
 
 # Apps
 # ------------------
@@ -11,15 +12,15 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "hr",
-# 		"logo": "/assets/hr/logo.png",
-# 		"title": "MOI HR",
-# 		"route": "/hr",
-# 		"has_permission": "hr.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": app_name,
+		"logo": "/assets/erpnext/images/erpnext-logo.svg",
+		"title": "MOI App",
+		"route": app_home,
+		"has_permission": "erpnext.check_app_permission",
+	}
+]
 
 # Includes in <head>
 # ------------------
