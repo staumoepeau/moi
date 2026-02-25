@@ -1,5 +1,5 @@
 import * as React from "react";
-import { App } from "./App";
+import { QmsTerminal } from "./QmsTerminal";
 import { createRoot } from "react-dom/client";
 
 class Qms_Terminal {
@@ -44,7 +44,7 @@ class Qms_Terminal {
 	setup_app() {
 		// create and mount the react app
 		const root = createRoot(this.$wrapper.get(0));
-		root.render(<App />);
+		root.render(<QmsTerminal />);
 		this.$qms_terminal = root;
 	}
 }

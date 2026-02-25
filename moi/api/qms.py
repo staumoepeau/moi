@@ -17,7 +17,7 @@ def create_ticket(service_name):
 
 
 @frappe.whitelist()
-def call_next_ticket(status, counter_number, officer):
+def call_next_ticket(status, service, counter_number, officer):
     """Finds the oldest waiting ticket and assigns it to a counter by its number."""
     
     # 1. Find the internal Record Name (ID) using the Counter Number field
@@ -30,7 +30,7 @@ def call_next_ticket(status, counter_number, officer):
 
     # 2. Get the oldest ticket with 'Waiting' status
     ticket = frappe.get_all("QMS Ticket", 
-        filters={"status": status}, 
+        filters={"status": status, "service_requested": service}, 
         fields=["name"], 
         order_by="creation asc", 
         limit=1
@@ -105,24 +105,52 @@ def check_in_to_counter(counter_number):
     
     return "Success"
 
+
+import frappe
+from frappe.utils import now_datetime
+
 @frappe.whitelist()
-def update_counter_status(counter_number, status, officer):
-    # Find the counter record
-    counter_name = frappe.db.get_value("QMS Counter", {"counter_number": counter_number}, "name")
+def update_counter_status(counter_number, status, service, officer):
+    """
+    Updates QMS Counter status and logs session in QMS Counter Details
+    """
+    # 1. We don't have a status field in QMS Counter based on your JSON, 
+    # but we can track the live status in the session logs.
     
-    if not counter_name:
-        frappe.throw(f"Counter {counter_number} not found")
-        
-    # Update the counter with officer details and status
-    counter_doc = frappe.get_doc("QMS Counter", counter_name)
-    counter_doc.current_officer = officer
-    counter_doc.status = status
-    
-    # Optional: Clear officer if closed
-    if status == "Closed":
-        counter_doc.current_officer = None
-        
-    counter_doc.save(ignore_permissions=True)
-    frappe.db.commit()
-    
+    if status == "Open":
+        # Create a new session record
+        new_log = frappe.get_doc({
+            "doctype": "QMS Counter Details",
+            "counter_number": counter_number,
+            "service": service,
+            "officer": officer,
+            "status": "Open",
+            "opening_time": now_datetime()
+        })
+        new_log.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return new_log.name
+
+    elif status in ["Closed", "Break"]:
+        # Find the currently open session for this specific counter and officer
+        # We look for the most recent record where closing_time is NOT set
+        active_session = frappe.get_all("QMS Counter Details", 
+            filters={
+                "counter_number": counter_number,
+                "officer": officer,
+                "status": "Open",
+                "closing_time": ["is", "not set"]
+            },
+            order_by="creation desc",
+            limit=1
+        )
+
+        if active_session:
+            frappe.db.set_value("QMS Counter Details", active_session[0].name, {
+                "status": status,
+                "closing_time": now_datetime()
+            })
+            frappe.db.commit()
+            return active_session[0].name
+
     return True

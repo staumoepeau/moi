@@ -10,52 +10,82 @@
  "field_order": [
   "counter_number",
   "service",
-  "officer",
+  "opening_time",
+  "column_break_fdsz",
   "status",
-  "column_break_fdsz"
+  "officer",
+  "officer_name",
+  "closing_time"
  ],
  "fields": [
   {
    "fieldname": "counter_number",
-   "fieldtype": "Data",
-   "label": "Counter Number"
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Counter Number",
+   "options": "QMS Counter"
   },
   {
    "fieldname": "service",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
    "label": "Service",
    "options": "QMS Service"
   },
   {
    "fieldname": "officer",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_preview": 1,
-   "in_standard_filter": 1,
+   "hidden": 1,
    "label": "Officer",
    "options": "User",
    "read_only": 1
   },
   {
+   "default": "Closed",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_preview": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Open\nBreak\nClose"
+   "options": "\nOpen\nBreak\nClosed"
   },
   {
    "fieldname": "column_break_fdsz",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "opening_time",
+   "fieldtype": "Datetime",
+   "label": "Opening Time"
+  },
+  {
+   "fieldname": "closing_time",
+   "fieldtype": "Datetime",
+   "label": "Closing Time"
+  },
+  {
+   "fetch_from": "officer.full_name",
+   "fieldname": "officer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Officer",
+   "options": "User",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "hide_toolbar": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-10 20:02:36.971332",
- "modified_by": "Administrator",
+ "modified": "2026-02-13 14:30:31.871504",
+ "modified_by": "dennis@moi.gov.to",
  "module": "MOI QMS",
  "name": "QMS Counter Details",
  "naming_rule": "Expression",
@@ -78,6 +108,5 @@
  "rows_threshold_for_grid_search": 20,
  "sort_field": "creation",
  "sort_order": "DESC",
- "states": [],
- "title_field": "counter_number"
+ "states": []
 }

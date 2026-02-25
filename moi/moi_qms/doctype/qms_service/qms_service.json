@@ -11,6 +11,9 @@
   "service_name",
   "service_code",
   "avg_time",
+  "column_break_amzo",
+  "image",
+  "background_color",
   "is_active"
  ],
  "fields": [
@@ -27,8 +30,7 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Service Code",
-   "reqd": 1,
-   "unique": 1
+   "read_only": 1
   },
   {
    "fieldname": "avg_time",
@@ -40,13 +42,28 @@
    "fieldname": "is_active",
    "fieldtype": "Check",
    "label": "Is Active"
+  },
+  {
+   "fieldname": "column_break_amzo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Image"
+  },
+  {
+   "fieldname": "background_color",
+   "fieldtype": "Color",
+   "label": "Background Color"
   }
  ],
  "hide_toolbar": 1,
+ "image_field": "image",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-10 10:45:45.833487",
- "modified_by": "Administrator",
+ "modified": "2026-02-13 10:14:21.479022",
+ "modified_by": "dennis@moi.gov.to",
  "module": "MOI QMS",
  "name": "QMS Service",
  "naming_rule": "By fieldname",

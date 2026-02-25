@@ -1,5 +1,5 @@
 
-
+import os
 import frappe
 from frappe.model.document import Document
 
@@ -91,3 +91,24 @@ def remove_employee_role(employee, role=None):
 
     frappe.msgprint(f"✅ Acting role '{role}' removed and marked Expired for {emp.employee_name or emp.name} (User: {user_id})")
     return {"removed": removed, "role": role}
+
+
+
+@frappe.whitelist()
+def create_signature(employee, signature):
+    emp = frappe.get_doc('Employee', employee)
+    
+    email = emp.company_email
+    if not email:
+        frappe.throw('No company email set on this employee.')
+
+    directory = '/etc/postfix/disclaimer'
+    os.makedirs(directory, exist_ok=True)
+
+    filename = f'{email}.html'
+    filepath = os.path.join(directory, filename)
+
+    with open(filepath, 'w') as f:
+        f.write(signature)
+
+    return filepath

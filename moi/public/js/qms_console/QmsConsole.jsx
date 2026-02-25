@@ -7,10 +7,67 @@ export function QmsConsole() {
   const [activeTicket, setActiveTicket] = React.useState(null);
   const [counter, setCounter] = React.useState(localStorage.getItem("qms_counter") || "");
   const [service, setService] = React.useState(localStorage.getItem("qms_service") || "");
-  const [status, setStatus] = React.useState(localStorage.getItem("qms_status") || "Closed"); // New Status State
+  const [status, setStatus] = React.useState(localStorage.getItem("qms_status") || "Closed");
+  
+  // Dashboard States
+  const [stats, setStats] = React.useState({ served: 0, waiting: 0 });
+  
   const [countersList, setCountersList] = React.useState([]); 
   const [servicesList, setServicesList] = React.useState([]); 
   const [loading, setLoading] = React.useState(false);
+
+  // FETCH SERVED & WAITING FROM QMS TICKET
+  const fetchStats = async () => {
+      if (!counter || !service) return;
+      try {
+        
+
+      // Test 1: only status = Completed (should be all completed tickets for anyone)
+        const totalCompleted = await frappe.db.count("QMS Ticket", { filters: { status: "Completed" } });
+      console.log("Total completed tickets in system:", totalCompleted);
+
+      // Test 2: only officer = currentUser
+      const userTotal = await frappe.db.count("QMS Ticket", { officer: currentUser, status: "Completed" });
+      console.log("Completed by this user (no counter filter):", userTotal);
+
+      // Test 3: only counter = your counter
+      const counterTotal = await frappe.db.count("QMS Ticket", { counter_number: counter, status: "Completed" });
+      console.log("Completed at this counter (no officer filter):", counterTotal);
+      
+        const todayStart = frappe.datetime.get_today();
+
+        const servedCount = await frappe.db.count("QMS Ticket", {
+          filters: {
+            counter: counter,
+            officer: currentUser,
+            service_requested: service,
+            status: "Completed",
+            completed_at: [">=", todayStart]
+          }
+        });
+
+      console.log("servedCount result:", servedCount);
+
+        const waitingCount = await frappe.db.count("QMS Ticket", {
+          filters: {
+            service_requested: service,
+            status: "Waiting"
+          }
+        });
+
+        console.log("Stats Refresh:", { 
+            served: servedCount, 
+            waiting: waitingCount, 
+            officer: currentUser,
+            counter: counter,
+            completed_at: todayStart
+        });
+
+        setStats({ served: servedCount, waiting: waitingCount });
+      } catch (e) {
+        console.error("Failed to fetch QMS Ticket stats:", e);
+      }
+  };
 
   React.useEffect(() => {
     const fetchData = async () => {
@@ -34,15 +91,34 @@ export function QmsConsole() {
     fetchData();
   }, []);
 
+  // Refresh stats when dependencies change
+  React.useEffect(() => {
+    fetchStats();
+    // Auto-refresh every 20 seconds to keep the "Waiting" count live
+    const interval = setInterval(fetchStats, 20000);
+    return () => clearInterval(interval);
+  }, [counter, service, activeTicket]);
+
   const ConsoleStyles = `
     header.navbar, .navbar, .page-sidebar, .page-head, .body-sidebar-container { display: none !important; }
     .layout-main-section-wrapper, .page-container { padding: 0 !important; margin: 0 !important; }
     .layout-main-section { max-width: 100vw !important; }
     .officer-screen { width: 100vw; height: 100vh; background: #f4f7f9; font-family: sans-serif; display: flex; flex-direction: column; }
     .top-bar { background: #ccd1d8; color: black; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    
+    .dashboard-bar { background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; padding: 0.8rem 2rem; gap: 50px; }
+    .stat-item { display: flex; flex-direction: column; }
+    .stat-label { font-size: 0.7rem; color: #718096; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+    .stat-value { font-size: 1.4rem; font-weight: 800; }
+    .val-served { color: #38a169; } /* Green */
+    .val-waiting { color: #e53e3e; } /* Red */
+
     .main-content { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; }
     .card { background: white; border-radius: 1.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 3rem; width: 100%; max-width: 600px; text-align: center; }
-    .btn-call { background: #2b6cb0; color: white; font-size: 2rem; font-weight: bold; padding: 2rem 4rem; border: none; border-radius: 1rem; cursor: pointer; }
+    .btn-call { background: #2b6cb0; color: white; font-size: 2rem; font-weight: bold; padding: 2rem 4rem; border: none; border-radius: 1rem; cursor: pointer; transition: 0.2s; }
+    .btn-call:hover:not(:disabled) { background: #2c5282; transform: translateY(-2px); }
+    .btn-call:disabled { opacity: 0.5; cursor: not-allowed; }
+    
     .input-group { text-align: left; margin-bottom: 1.5rem; }
     .input-field { width: 100%; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; font-size: 1.2rem; margin-top: 0.5rem; }
     .btn-complete { background: #38a169; color: white; width: 100%; padding: 1.2rem; border: none; border-radius: 0.5rem; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
@@ -55,24 +131,37 @@ export function QmsConsole() {
   `;
 
   // Update Status Logic
-  const handleStatusChange = async (newStatus) => {
+const handleStatusChange = async (newStatus) => {
     if (!counter) return frappe.msgprint("Please select a Counter first");
     
+    // Logic check: Cannot open without a service selected
+    if (newStatus === "Open" && !service) {
+      return frappe.msgprint("Please select a Service before opening the counter");
+    }
+
     setLoading(true);
     try {
       await frappe.call({
         method: "moi.api.qms.update_counter_status",
         args: {
-          counter_number: counter,
+          counter_number: counter, // This is the Link to QMS Counter
           status: newStatus,
+          service: service,        // This is the Link to QMS Service
           officer: currentUser
         }
       });
+
       setStatus(newStatus);
       localStorage.setItem("qms_status", newStatus);
-      frappe.show_alert({ message: `Counter is now ${newStatus}`, indicator: newStatus === "Open" ? "green" : "orange" });
+      
+      frappe.show_alert({ 
+        message: `Counter ${counter} is now ${newStatus}`, 
+        indicator: newStatus === "Open" ? "green" : "orange" 
+      });
+
     } catch (e) {
-      console.error(e);
+      console.error("Status Update Error:", e);
+      frappe.msgprint("Error updating counter logs. Check system console.");
     } finally {
       setLoading(false);
     }
@@ -154,7 +243,10 @@ export function QmsConsole() {
           <div>
             <label style={{ marginRight: "8px" }}>Status:</label>
             <select 
-              className={`input-field-small status-badge status-${status.toLowerCase()}`}
+              className={`input-field-small status-badge ${
+                status === "Open" ? "status-open" : 
+                status === "Break" ? "status-break" : "status-closed"
+              }`}
               value={status} 
               onChange={(e) => handleStatusChange(e.target.value)}
               disabled={loading}
@@ -192,6 +284,18 @@ export function QmsConsole() {
               ))}
             </select>
           </div>
+        </div>
+      </div>
+
+{/* DASHBOARD BAR - DATA FROM QMS TICKET */}
+      <div className="dashboard-bar">
+        <div className="stat-item">
+            <span className="stat-label">Your Served (Today)</span>
+            <span className="stat-value val-served">{stats.served} Customers</span>
+        </div>
+        <div className="stat-item">
+            <span className="stat-label">In Queue ({service || 'No Service'})</span>
+            <span className="stat-value val-waiting">{stats.waiting} Waiting</span>
         </div>
       </div>
 

@@ -43,13 +43,15 @@ export function QmsDisplay() {
     .body-sidebar-container.expanded, .body-sidebar-placeholder { display: none !important; }
     header.navbar, .navbar, .page-sidebar, .page-head { display: none !important; }
     
+    /* Option A: Modern Light Blue (Recommended) */
     .display-screen {
         width: 100vw; height: 100vh;
-        background: radial-gradient(circle, #1a365d 0%, #0a192f 100%);
-        color: white; font-family: 'Segoe UI', sans-serif;
+        background: linear-gradient(135deg, #2b6cb0 0%, #1a365d 100%);    
+        color: #f5f7fa; /* Dark text for contrast */
+        font-family: 'Segoe UI', sans-serif;
         display: flex; overflow: hidden;
     }
-    
+        
     /* Start Overlay */
     .overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -64,9 +66,9 @@ export function QmsDisplay() {
     .main-area { flex: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 2px solid #2d3748; }
     .history-area { flex: 1; background: rgba(0,0,0,0.2); padding: 2rem; }
     .label { font-size: 2rem; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5rem; }
-    .big-ticket { font-size: 15rem; font-weight: 900; line-height: 1; color: #63b3ed; text-shadow: 0 0 30px rgba(99, 179, 237, 0.5); }
+    .big-ticket { font-size: 15rem; font-weight: 900; line-height: 1; color: #f8f9fa; text-shadow: 0 0 30px rgba(99, 179, 237, 0.5); }
     .big-counter { font-size: 6rem; font-weight: bold; background: #2b6cb0; padding: 0.5rem 3rem; border-radius: 1rem; margin-top: 2rem; }
-    .history-item { border-bottom: 1px solid #2d3748; padding: 1rem 0; display: flex; justify-content: space-between; font-size: 2rem; }
+    .history-item { border-bottom: 1px solid #e9edf5; padding: 1rem 0; display: flex; justify-content: space-between; font-size: 2rem; }
   `;
 
   if (!isStarted) {
