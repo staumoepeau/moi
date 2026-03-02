@@ -1,0 +1,65 @@
+import frappe
+import os
+
+# Your Template with Placeholders
+HTML_TEMPLATE = """
+<table cellspacing="0" cellpadding="0" border="0" style="COLOR: #808080; FONT-FAMILY: Arial, sans-serif; width: 440px; background: transparent !important;">
+  <tbody>
+      <tr>
+          <td colspan="2">
+          <span style="FONT-SIZE: 18pt; COLOR: #0c5bb4; line-height: 22pt; FONT-FAMILY: Arial, sans-serif;"><strong>{name}</strong></span>    
+          </td>
+      </tr>
+  <tr>
+      <td style="FONT-SIZE: 12pt; FONT-FAMILY: Arial, sans-serif; WIDTH: 260px; COLOR: #808080;line-height:14pt;  padding-bottom: 15px;">
+          <span style="FONT-SIZE: 12pt; LINE-HEIGHT: 20px; COLOR: #808080; FONT-FAMILY: Arial, sans-serif;">{designation}</span>
+      </td>
+  </tr>
+  <tr>
+      <td colspan="2" style="padding-top: 15px; border-top: solid 1px #0c5bb4; FONT-SIZE: 9pt; line-height: 14px;">
+            <span style="FONT-SIZE: 9pt; COLOR: #808080; FONT-FAMILY: Arial, sans-serif;"><span style="color: #000000;"><strong>Mobile:</strong></span> {mobile} | </span>
+            <span style="FONT-SIZE: 9pt; COLOR: #808080;FONT-FAMILY: Arial, sans-serif;"><span style="color: #000000;"><strong>Phone:</strong></span> +676 7401541</span>
+            <span style="FONT-SIZE: 9pt; COLOR: #000000;"><br><span style="color: #000000;"><strong>Email:</strong></span> <a href="mailto:{email}" style="FONT-SIZE: 9pt; COLOR: #808080; text-decoration: none;">{email}</a></span>
+            <span style="FONT-SIZE: 9pt; COLOR: #808080;"><br><span style="color: #000000;FONT-FAMILY: Arial, sans-serif;"><strong>{company}</strong>, </span>Nuku'alofa, TONGA</span>
+            <br><br>
+            <a href="https://moi.gov.to" target="_blank" style="text-decoration:none;"><strong style="color:#0c5bb4; font-size:9pt">https://moi.gov.to</strong></a>
+      </td>
+  </tr>
+</tbody></table>
+"""
+
+def generate_postfix_files():
+    frappe.init(site="moi.gov.to")
+    frappe.connect()
+    
+    output_dir = "/etc/postfix/disclaimer"
+    
+    # Ensure directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    employees = frappe.get_all("Employee", 
+        fields=["employee_name", "designation", "cell_number", "user_id", "company"],
+        filters={"status": "Active"})
+
+    for emp in employees:
+        email = emp.get("user_id")
+        if not email: continue
+
+        formatted_html = HTML_TEMPLATE.format(
+            name=emp.employee_name,
+            designation=emp.designation or "Staff",
+            company=emp.company,
+            mobile=emp.cell_number or "N/A",
+            email=email
+        )
+
+        # Save file as email_address.html (e.g., dennis@moi.gov.to.html)
+        file_path = os.path.join(output_dir, f"{email}.html")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(formatted_html)
+            
+    print(f"Generated {len(employees)} disclaimer files.")
+
+if __name__ == "__main__":
+    generate_postfix_files()
