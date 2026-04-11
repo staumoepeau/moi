@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* MOI QMS specific component utilities */
+@layer components {
+  .moi-container {
+    @apply max-w-7xl mx-auto px-4;
+  }
+
+  .moi-card {
+    @apply bg-white border border-gray-200 rounded-md p-4 shadow-sm;
+  }
+
+  .moi-header {
+    @apply text-2xl font-semibold text-gray-900 mb-4;
+  }
+
+  .moi-subheader {
+    @apply text-lg font-medium text-gray-800 mb-2;
+  }
+
+  .moi-panel {
+    @apply bg-white rounded-md shadow-sm border border-gray-200;
+  }
+
+  .moi-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-gray-100 text-gray-800;
+  }
+
+  /* Frappe integration styles */
+  .frappe-control {
+    @apply mb-3;
+  }
+
+  .form-section {
+    @apply mb-6 pb-6 border-b border-gray-200;
+  }
+
+  .form-section:last-child {
+    @apply border-b-0;
+  }
+}

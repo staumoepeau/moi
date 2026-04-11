@@ -11,35 +11,19 @@ class Qms_Terminal {
 	}
 
 	init() {
-		// this.hide_frappe_ui(); // Remove sidebar and navbar
+		this.hide_frappe_ui(); // Remove sidebar and navbar for kiosk mode
 		this.setup_app();
 	}
 
-	// hide_frappe_ui() {
-	// 	// 1. Hide the Sidebar
-	// 	this.page.sidebar.hide();
-
-	// 	// 2. Hide the Navbar (Global Frappe Navbar)
-	// 	$(".navbar").hide();
-
-	// 	// 3. Remove the Breadcrumbs and Page Headings for a clean look
-	// 	this.page.header.hide();
-
-	// 	// 4. Force the container to take full width and height
-	// 	// Frappe usually adds padding and max-width to the layout
-	// 	$(".layout-main-section-wrapper").css({
-	// 		"padding": "0",
-	// 		"margin": "0"
-	// 	});
-		
-	// 	$(".layout-main-section").css({
-	// 		"padding": "0",
-	// 		"max-width": "100%"
-	// 	});
-		
-	// 	// Hide the footer if it exists
-	// 	$(".page-footer").hide();
-	// }
+	hide_frappe_ui() {
+		// Hide sidebar, navbar, and header for full-screen kiosk mode
+		this.page.sidebar?.hide();
+		$(".navbar").hide();
+		this.page.header?.hide();
+		$(".layout-main-section-wrapper").css({ padding: "0", margin: "0" });
+		$(".layout-main-section").css({ padding: "0", "max-width": "100%" });
+		$(".page-footer").hide();
+	}
 
 	setup_app() {
 		// create and mount the react app

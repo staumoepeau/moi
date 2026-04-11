@@ -46,6 +46,25 @@ web_include_css = "moi.qms.bundle.css"
 # include js in page
 # page_js = {"page" : "public/js/file.js"}
 
+# Register pages
+page = [
+	# mywhy-ui example pages
+	{
+		"name": "qms-display-refactored",
+		"module": "moi",
+		"route": "qms-display-refactored",
+		"title": "QMS Display (mywhy-ui)",
+		"template": "moi/qms_display_refactored",
+	},
+	{
+		"name": "qms-config-form",
+		"module": "moi",
+		"route": "qms-config-form",
+		"title": "QMS Config Form (mywhy-ui)",
+		"template": "moi/qms_config_form",
+	},
+]
+
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}

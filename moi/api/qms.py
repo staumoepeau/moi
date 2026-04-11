@@ -154,3 +154,63 @@ def update_counter_status(counter_number, status, service, officer):
             return active_session[0].name
 
     return True
+
+@frappe.whitelist()
+def recall_ticket(ticket_id, counter_number, officer):
+    """Re-emits the ticket_called realtime event so the display screen announces again."""
+    frappe.publish_realtime(
+        "ticket_recalled",
+        {
+            "ticket_id": ticket_id,
+            "counter_number": counter_number,
+        },
+        after_commit=False
+    )
+    return "ok"
+
+@frappe.whitelist()
+def no_show(ticket_id, officer, counter_number):
+    """Marks the ticket as No Show and frees the counter."""
+    ticket = frappe.get_doc("QMS Ticket", ticket_id)
+    ticket.status = "No Show"
+    ticket.officer = officer
+    ticket.no_show_at = frappe.utils.now()
+    ticket.save(ignore_permissions=True)
+    frappe.db.commit()
+    return "ok"
+
+
+
+@frappe.whitelist(allow_guest=True)
+def submit_feedback(ticket_id, rating, comment=""):
+    """
+    Creates a QMS Feedback document linked to the ticket.
+    Requires a DocType called 'QMS Feedback' with fields:
+      - ticket        (Link -> QMS Ticket)
+      - rating        (Int)
+      - comment       (Text)
+      - service       (Link -> QMS Service, fetched from ticket)
+      - submitted_at  (Datetime)
+    """
+    ticket = frappe.get_doc("QMS Ticket", ticket_id)
+
+    # Guard: only allow feedback on completed tickets
+    if ticket.status != "Completed":
+        frappe.throw("Feedback can only be submitted for completed tickets.")
+
+    # Guard: prevent duplicate feedback
+    existing = frappe.db.exists("QMS Feedback", {"ticket": ticket_id})
+    if existing:
+        frappe.throw("Feedback has already been submitted for this ticket.")
+
+    feedback = frappe.get_doc({
+        "doctype": "QMS Feedback",
+        "ticket": ticket_id,
+        "rating": int(rating),
+        "comment": comment,
+        "service": ticket.service_requested,
+        "submitted_at": frappe.utils.now(),
+    })
+    feedback.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return "ok"

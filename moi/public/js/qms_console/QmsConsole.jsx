@@ -1,89 +1,116 @@
 import * as React from "react";
+import { getQmsPageStyles, qmsStatusTone } from "../qms_shared/qmsTheme";
 
 export function QmsConsole() {
-  const currentUser = frappe.session.user;
-  const currentUserName = frappe.boot.user_info[currentUser]?.fullname || currentUser;
+  const currentUser      = frappe.session.user;
+  const currentUserInfo  = frappe.boot.user_info?.[currentUser] || {};
+  const currentUserName  = currentUserInfo.fullname || currentUser;
+  const userImage        = currentUserInfo.image || null;
+  const initials         = currentUserName.split(" ").filter(Boolean).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+  const [userMenuOpen, setUserMenuOpen] = React.useState(false);
+  const userMenuRef = React.useRef(null);
+
+  const Icon = ({ name, className = "", style = {} }) => (
+    <i className={`octicon octicon-${name} ${className}`} style={{ marginRight: 6, ...style }} aria-hidden="true" />
+  );
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target))
+        setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleLogout = () => {
+    frappe.confirm("Are you sure you want to log out?", () => {
+      window.location.href = "/logout";
+    });
+  };
 
   const [activeTicket, setActiveTicket] = React.useState(null);
   const [counter, setCounter] = React.useState(localStorage.getItem("qms_counter") || "");
   const [service, setService] = React.useState(localStorage.getItem("qms_service") || "");
   const [status, setStatus] = React.useState(localStorage.getItem("qms_status") || "Closed");
-  
-  // Dashboard States
   const [stats, setStats] = React.useState({ served: 0, waiting: 0 });
-  
-  const [countersList, setCountersList] = React.useState([]); 
-  const [servicesList, setServicesList] = React.useState([]); 
+  const [queueDashboard, setQueueDashboard] = React.useState([]);
+  const [countersList, setCountersList] = React.useState([]);
+  const [servicesList, setServicesList] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
 
-  // FETCH SERVED & WAITING FROM QMS TICKET
-  const fetchStats = async () => {
-      if (!counter || !service) return;
-      try {
-        
-
-      // Test 1: only status = Completed (should be all completed tickets for anyone)
-        const totalCompleted = await frappe.db.count("QMS Ticket", { filters: { status: "Completed" } });
-      console.log("Total completed tickets in system:", totalCompleted);
-
-      // Test 2: only officer = currentUser
-      const userTotal = await frappe.db.count("QMS Ticket", { officer: currentUser, status: "Completed" });
-      console.log("Completed by this user (no counter filter):", userTotal);
-
-      // Test 3: only counter = your counter
-      const counterTotal = await frappe.db.count("QMS Ticket", { counter_number: counter, status: "Completed" });
-      console.log("Completed at this counter (no officer filter):", counterTotal);
-      
-        const todayStart = frappe.datetime.get_today();
-
-        const servedCount = await frappe.db.count("QMS Ticket", {
-          filters: {
-            counter: counter,
-            officer: currentUser,
-            service_requested: service,
-            status: "Completed",
-            completed_at: [">=", todayStart]
-          }
-        });
-
-      console.log("servedCount result:", servedCount);
-
-        const waitingCount = await frappe.db.count("QMS Ticket", {
-          filters: {
-            service_requested: service,
-            status: "Waiting"
-          }
-        });
-
-        console.log("Stats Refresh:", { 
-            served: servedCount, 
-            waiting: waitingCount, 
-            officer: currentUser,
-            counter: counter,
-            completed_at: todayStart
-        });
-
-        setStats({ served: servedCount, waiting: waitingCount });
-      } catch (e) {
-        console.error("Failed to fetch QMS Ticket stats:", e);
-      }
+  // ── Fetch per-service queue counts ──────────────────────────────────────
+  const fetchQueueDashboard = async (services) => {
+    const list = services || servicesList;
+    if (!list.length) return;
+    try {
+      const results = await Promise.all(
+        list.map(async (svc) => {
+          const waiting = await frappe.db.count("QMS Ticket", {
+            filters: { service_requested: svc, status: "Waiting" },
+          });
+          const serving = await frappe.db.count("QMS Ticket", {
+            filters: { service_requested: svc, status: "Serving" },
+          });
+          const todayStart = frappe.datetime.get_today();
+          const completed = await frappe.db.count("QMS Ticket", {
+            filters: {
+              service_requested: svc,
+              status: "Completed",
+              completed_at: [">=", todayStart],
+            },
+          });
+          return { service: svc, waiting, serving, completed };
+        })
+      );
+      setQueueDashboard(results);
+    } catch (e) {
+      console.error("Queue dashboard fetch failed:", e);
+    }
   };
 
+  // ── Fetch officer stats ──────────────────────────────────────────────────
+  const fetchStats = async () => {
+    if (!counter || !service) return;
+    try {
+      const todayStart = frappe.datetime.get_today();
+      const servedCount = await frappe.db.count("QMS Ticket", {
+        filters: {
+          counter: counter,
+          officer: currentUser,
+          service_requested: service,
+          status: "Completed",
+          completed_at: [">=", todayStart],
+        },
+      });
+      const waitingCount = await frappe.db.count("QMS Ticket", {
+        filters: { service_requested: service, status: "Waiting" },
+      });
+      setStats({ served: servedCount, waiting: waitingCount });
+    } catch (e) {
+      console.error("Failed to fetch stats:", e);
+    }
+  };
+
+  // ── Bootstrap: load counters + services ─────────────────────────────────
   React.useEffect(() => {
     const fetchData = async () => {
       try {
         const counterRes = await frappe.db.get_list("QMS Counter", {
           fields: ["counter_number"],
-          order_by: "counter_number asc"
+          order_by: "counter_number asc",
         });
-        setCountersList(counterRes.map(c => c.counter_number).filter(Boolean));
+        setCountersList(counterRes.map((c) => c.counter_number).filter(Boolean));
 
         const serviceRes = await frappe.db.get_list("QMS Service", {
           fields: ["name"],
-          filters: { is_active: 1 }, 
-          order_by: "name asc"
+          filters: { is_active: 1 },
+          order_by: "name asc",
         });
-        setServicesList(serviceRes.map(s => s.name));
+        const names = serviceRes.map((s) => s.name);
+        setServicesList(names);
+        fetchQueueDashboard(names);
       } catch (e) {
         console.error("Failed to fetch data:", e);
       }
@@ -91,127 +118,137 @@ export function QmsConsole() {
     fetchData();
   }, []);
 
-  // Refresh stats when dependencies change
+  // ── Auto-refresh ─────────────────────────────────────────────────────────
   React.useEffect(() => {
     fetchStats();
-    // Auto-refresh every 20 seconds to keep the "Waiting" count live
-    const interval = setInterval(fetchStats, 20000);
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchQueueDashboard();
+    }, 20000);
     return () => clearInterval(interval);
-  }, [counter, service, activeTicket]);
+  }, [counter, service, activeTicket?.name]);
 
-  const ConsoleStyles = `
-    header.navbar, .navbar, .page-sidebar, .page-head, .body-sidebar-container { display: none !important; }
-    .layout-main-section-wrapper, .page-container { padding: 0 !important; margin: 0 !important; }
-    .layout-main-section { max-width: 100vw !important; }
-    .officer-screen { width: 100vw; height: 100vh; background: #f4f7f9; font-family: sans-serif; display: flex; flex-direction: column; }
-    .top-bar { background: #ccd1d8; color: black; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-    
-    .dashboard-bar { background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; padding: 0.8rem 2rem; gap: 50px; }
-    .stat-item { display: flex; flex-direction: column; }
-    .stat-label { font-size: 0.7rem; color: #718096; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-    .stat-value { font-size: 1.4rem; font-weight: 800; }
-    .val-served { color: #38a169; } /* Green */
-    .val-waiting { color: #e53e3e; } /* Red */
-
-    .main-content { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; }
-    .card { background: white; border-radius: 1.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 3rem; width: 100%; max-width: 600px; text-align: center; }
-    .btn-call { background: #2b6cb0; color: white; font-size: 2rem; font-weight: bold; padding: 2rem 4rem; border: none; border-radius: 1rem; cursor: pointer; transition: 0.2s; }
-    .btn-call:hover:not(:disabled) { background: #2c5282; transform: translateY(-2px); }
-    .btn-call:disabled { opacity: 0.5; cursor: not-allowed; }
-    
-    .input-group { text-align: left; margin-bottom: 1.5rem; }
-    .input-field { width: 100%; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; font-size: 1.2rem; margin-top: 0.5rem; }
-    .btn-complete { background: #38a169; color: white; width: 100%; padding: 1.2rem; border: none; border-radius: 0.5rem; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
-    select.input-field-small { color: black; padding: 4px; border-radius: 4px; min-width: 100px; border: 1px solid #cbd5e0; cursor: pointer; }
-    .top-bar-controls { display: flex; gap: 15px; align-items: center; }
-    .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }
-    .status-open { background: #c6f6d5; color: #22543d; }
-    .status-break { background: #fefcbf; color: #744210; }
-    .status-closed { background: #fed7d7; color: #822727; }
-  `;
-
-  // Update Status Logic
-const handleStatusChange = async (newStatus) => {
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleStatusChange = async (newStatus) => {
     if (!counter) return frappe.msgprint("Please select a Counter first");
-    
-    // Logic check: Cannot open without a service selected
-    if (newStatus === "Open" && !service) {
+    if (newStatus === "Open" && !service)
       return frappe.msgprint("Please select a Service before opening the counter");
-    }
-
     setLoading(true);
     try {
       await frappe.call({
         method: "moi.api.qms.update_counter_status",
-        args: {
-          counter_number: counter, // This is the Link to QMS Counter
-          status: newStatus,
-          service: service,        // This is the Link to QMS Service
-          officer: currentUser
-        }
+        args: { counter_number: counter, status: newStatus, service, officer: currentUser },
       });
-
       setStatus(newStatus);
       localStorage.setItem("qms_status", newStatus);
-      
-      frappe.show_alert({ 
-        message: `Counter ${counter} is now ${newStatus}`, 
-        indicator: newStatus === "Open" ? "green" : "orange" 
+      frappe.show_alert({
+        message: `Counter ${counter} is now ${newStatus}`,
+        indicator: newStatus === "Open" ? "green" : "orange",
       });
-
     } catch (e) {
       console.error("Status Update Error:", e);
-      frappe.msgprint("Error updating counter logs. Check system console.");
+      frappe.msgprint("Error updating counter status.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCounterChange = async (selectedNumber) => {
-    if (!selectedNumber) {
-        setCounter("");
-        localStorage.removeItem("qms_counter");
-        return;
-    }
-    setCounter(selectedNumber);
-    localStorage.setItem("qms_counter", selectedNumber);
+  const handleCounterChange = (val) => {
+    setCounter(val);
+    if (val) localStorage.setItem("qms_counter", val);
+    else localStorage.removeItem("qms_counter");
   };
 
-  const handleServiceChange = (selectedService) => {
-    setService(selectedService);
-    if (selectedService) localStorage.setItem("qms_service", selectedService);
+  const handleServiceChange = (val) => {
+    setService(val);
+    if (val) localStorage.setItem("qms_service", val);
     else localStorage.removeItem("qms_service");
   };
 
   const handleCallNext = async () => {
     if (status !== "Open") return frappe.msgprint("Counter must be OPEN to call customers");
     if (!counter || !service) return frappe.msgprint("Select Counter and Service");
-    
     setLoading(true);
     try {
       const res = await frappe.call({
         method: "moi.api.qms.call_next_ticket",
-        args: {
-          status: "Waiting",
-          counter_number: counter,
-          service: service,
-          officer: currentUser
-        }
+        args: { status: "Waiting", counter_number: counter, service, officer: currentUser },
       });
-
       if (res.message) {
         const ticketDetail = await frappe.db.get_doc("QMS Ticket", res.message);
         setActiveTicket(ticketDetail);
       } else {
         frappe.msgprint("No customers in queue for this service");
       }
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const [recallCount, setRecallCount] = React.useState(0);
+  const [recalling, setRecalling] = React.useState(false);
+
+  const handleRecall = async () => {
+    if (!activeTicket) return;
+    setRecalling(true);
+    try {
+      await frappe.call({
+        method: "moi.api.qms.recall_ticket",
+        args: {
+          ticket_id: activeTicket.name,
+          counter_number: counter,
+          officer: currentUser,
+        },
+      });
+    } finally {
+      setRecallCount((c) => c + 1);
+      frappe.show_alert({
+        message: `Ticket ${activeTicket.name} recalled (×${recallCount + 1})`,
+        indicator: "orange",
+      });
+      setRecalling(false);
+    }
+  };
+
+  const handleNoShow = async () => {
+    if (!activeTicket) return;
+    const confirm = await new Promise((resolve) => {
+      frappe.confirm(
+        `Mark ticket <b>${activeTicket.name}</b> as No Show?`,
+        () => resolve(true),
+        () => resolve(false)
+      );
+    });
+    if (!confirm) return;
+
+    setLoading(true);
+    try {
+      await frappe.call({
+        method: "moi.api.qms.no_show",
+        args: {
+          ticket_id: activeTicket.name,
+          officer: currentUser,
+          counter_number: counter,
+        },
+      });
+      setActiveTicket(null);
+      setRecallCount(0);
+      fetchStats();
+      fetchQueueDashboard();
+      frappe.show_alert({ message: `Ticket ${activeTicket.name} marked as No Show`, indicator: "red" });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleComplete = async () => {
-    if (!activeTicket.customer_id || !activeTicket.customer_name) {
+    if (!activeTicket) return;
+    if (!activeTicket.customer_id || !activeTicket.customer_name)
       return frappe.msgprint("Please enter ID and Name");
-    }
     setLoading(true);
     try {
       await frappe.call({
@@ -220,34 +257,463 @@ const handleStatusChange = async (newStatus) => {
           ticket_id: activeTicket.name,
           customer_name: activeTicket.customer_name,
           customer_id: activeTicket.customer_id,
-          officer: currentUser
-        }
+          officer: currentUser,
+        },
       });
       setActiveTicket(null);
+      setRecallCount(0);
+      fetchStats();
+      fetchQueueDashboard();
       frappe.show_alert({ message: "Service Completed", indicator: "green" });
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ── Status helpers ────────────────────────────────────────────────────────
+  const statusIndicator = qmsStatusTone(status);
+
+  // ── Styles ────────────────────────────────────────────────────────────────
+  const styles = `
+    ${getQmsPageStyles("qms-root", { accent: "#1f7aec", surfaceTint: "#f7fafc" })}
+
+    /* ── Topbar ── */
+    .qms-topbar {
+      background: var(--qms-surface);
+      border-bottom: 1px solid var(--qms-border);
+      padding: 0 var(--padding-xl, 24px);
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px; flex-shrink: 0;
+      box-shadow: var(--qms-shadow-soft);
+    }
+    .qms-topbar-left { display: flex; align-items: center; gap: 12px; }
+    .qms-topbar-logo {
+      width: 32px; height: 32px; border-radius: 6px;
+      background: var(--qms-accent);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-weight: 700; font-size: 16px; flex-shrink: 0;
+    }
+    .qms-topbar-title { font-weight: 600; font-size: 15px; }
+    .qms-topbar-sub { font-size: 12px; color: var(--qms-text-muted); }
+    .qms-topbar-right { display: flex; align-items: center; gap: 10px; }
+    .qms-toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .qms-inline-field {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .qms-inline-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #4f5d75;
+      white-space: nowrap;
+    }
+
+    /* Frappe-style select */
+    .qms-select {
+      height: 40px;
+      min-width: 92px;
+      padding: 0 36px 0 14px;
+      border: 1px solid #cfd7e3;
+      border-radius: 12px;
+      background: var(--qms-surface);
+      color: var(--qms-text);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      outline: none;
+      box-shadow: 0 1px 1px rgba(15, 23, 42, 0.02);
+    }
+    .qms-select:hover { border-color: #b9c4d3; }
+    .qms-select:focus {
+      border-color: var(--qms-accent);
+      box-shadow: 0 0 0 3px rgba(31,122,236,.12), 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .qms-select.service { min-width: 176px; }
+    .qms-select.counter { min-width: 92px; }
+    .qms-select.status { min-width: 120px; }
+
+    /* Frappe indicator badge */
+    .indicator-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: 12px; font-weight: 500;
+    }
+    .indicator-pill::before {
+      content: ''; width: 6px; height: 6px;
+      border-radius: 50%; flex-shrink: 0;
+    }
+    .indicator-pill.green { background: #e4f5e9; color: #2c7a45; }
+    .indicator-pill.green::before { background: #2c7a45; }
+    .indicator-pill.orange { background: #fef3e2; color: #c07a00; }
+    .indicator-pill.orange::before { background: #c07a00; }
+    .indicator-pill.red { background: #fdecea; color: #c0392b; }
+    .indicator-pill.red::before { background: #c0392b; }
+    .indicator-pill.gray { background: #f0f0f0; color: #777; }
+    .indicator-pill.gray::before { background: #aaa; }
+    .indicator-pill.blue { background: #e3f2fd; color: #1565c0; }
+    .indicator-pill.blue::before { background: #1565c0; }
+
+    /* ── Workspace ── */
+    .qms-body {
+      flex: 1;
+      overflow: hidden;
+      padding: 24px;
+    }
+    .qms-workspace {
+      display: grid;
+      grid-template-columns: minmax(340px, 0.95fr) minmax(420px, 1.25fr);
+      gap: 20px;
+      height: 100%;
+      min-height: 0;
+    }
+    .qms-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--qms-surface);
+      border: 1px solid var(--qms-border);
+      border-radius: 18px;
+      box-shadow: var(--qms-shadow-soft);
+    }
+    .qms-panel.dashboard-panel { order: 1; }
+    .qms-panel.console-panel { order: 2; }
+    .qms-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--qms-border);
+      flex-shrink: 0;
+    }
+    .qms-panel-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--qms-text);
+    }
+    .qms-panel-subtitle {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--qms-text-muted);
+    }
+    .qms-panel-content {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 18px 20px 20px;
+    }
+
+    /* ── Stats bar ── */
+    .qms-statsbar {
+      display: flex;
+      gap: 14px;
+      flex-shrink: 0;
+      margin-bottom: 18px;
+    }
+    .stat-block { display: flex; flex-direction: column; gap: 2px; }
+    .stat-block .label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-muted, #8d99a6);
+    }
+    .stat-block .value { font-size: 22px; font-weight: 700; line-height: 1; }
+    .value.green { color: #2c7a45; }
+    .value.red { color: #c0392b; }
+    .value.blue { color: var(--primary, #2490ef); }
+
+    /* ── Frappe card ── */
+    .frappe-card {
+      background: var(--card-bg, #fff);
+      border: 1px solid var(--border-color, #e2e6e9);
+      border-radius: var(--border-radius-lg, 8px);
+      box-shadow: var(--card-shadow, 0 1px 3px rgba(0,0,0,.06));
+      padding: var(--padding-xl, 24px);
+    }
+
+    /* ── Console view ── */
+    .console-center {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100%;
+    }
+    .ticket-card { max-width: 560px; width: 100%; text-align: center; }
+    .ticket-number {
+      font-size: 96px; font-weight: 800; line-height: 1;
+      color: var(--primary, #2490ef); margin: 8px 0 24px;
+    }
+    .ticket-subtitle { font-size: 12px; color: var(--text-muted, #8d99a6); text-transform: uppercase; letter-spacing: .08em; }
+    .ticket-name { font-size: 16px; color: var(--text-color, #1f272e); font-weight: 500; margin-top: 2px; }
+
+    /* Frappe-style input */
+    .frappe-control { margin-bottom: 16px; text-align: left; }
+    .frappe-control label {
+      display: block; font-size: 12px; font-weight: 500;
+      color: var(--text-muted, #8d99a6); margin-bottom: 4px;
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .frappe-control input {
+      width: 100%; height: 36px; padding: 0 10px;
+      border: 1px solid var(--border-color, #d1d8dd);
+      border-radius: var(--border-radius, 6px);
+      background: var(--control-bg, #fff);
+      font-size: 14px; color: var(--text-color, #1f272e);
+      outline: none; box-sizing: border-box;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .frappe-control input:focus {
+      border-color: var(--primary, #2490ef);
+      box-shadow: 0 0 0 2px rgba(36,144,239,.15);
+    }
+
+    /* Buttons */
+    .btn-primary {
+      background: var(--primary, #2490ef); color: #fff;
+      border: none; border-radius: var(--border-radius, 6px);
+      padding: 8px 16px; font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: background .15s, transform .1s;
+    }
+    .btn-primary:hover:not(:disabled) { background: #1a7fd4; }
+    .btn-primary:active:not(:disabled) { transform: scale(.98); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-success {
+      background: #2c7a45; color: #fff;
+      border: none; border-radius: var(--border-radius, 6px);
+      width: 100%; padding: 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; margin-top: 8px; transition: background .15s;
+    }
+    .btn-success:hover:not(:disabled) { background: #236339; }
+    .btn-success:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-call-giant {
+      background: var(--primary, #2490ef); color: #fff;
+      border: none; border-radius: var(--border-radius-lg, 8px);
+      padding: 24px 64px; font-size: 22px; font-weight: 700;
+      cursor: pointer; letter-spacing: .03em;
+      box-shadow: 0 4px 14px rgba(36,144,239,.35);
+      transition: background .15s, transform .15s, box-shadow .15s;
+    }
+    .btn-call-giant:hover:not(:disabled) {
+      background: #1a7fd4; transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(36,144,239,.4);
+    }
+    .btn-call-giant:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ── Dashboard grid ── */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+    .service-card {
+      background: var(--card-bg, #fff);
+      border: 1px solid var(--border-color, #e2e6e9);
+      border-radius: var(--border-radius-lg, 8px);
+      padding: 20px;
+      box-shadow: var(--card-shadow, 0 1px 3px rgba(0,0,0,.06));
+      transition: box-shadow .2s;
+    }
+    .service-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+    .service-card-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .service-card-name { font-weight: 600; font-size: 14px; }
+    .service-metrics { display: flex; gap: 12px; margin-top: 12px; }
+    .metric-box {
+      flex: 1; text-align: center; padding: 10px 6px;
+      border-radius: 6px;
+    }
+    .metric-box .m-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted, #8d99a6); }
+    .metric-box .m-value { font-size: 28px; font-weight: 800; line-height: 1.1; }
+    .metric-box.waiting { background: #fdecea; }
+    .metric-box.waiting .m-value { color: #c0392b; }
+    .metric-box.serving { background: #e3f2fd; }
+    .metric-box.serving .m-value { color: #1565c0; }
+    .metric-box.done { background: #e4f5e9; }
+    .metric-box.done .m-value { color: #2c7a45; }
+
+    .refresh-btn {
+      background: none; border: 1px solid var(--border-color, #d1d8dd);
+      border-radius: 5px; padding: 4px 10px; font-size: 12px;
+      color: var(--text-muted, #8d99a6); cursor: pointer;
+      transition: background .15s;
+    }
+    .refresh-btn:hover { background: var(--bg-color, #f4f5f7); }
+
+    .empty-state {
+      text-align: center; padding: 64px 24px;
+      color: var(--text-muted, #8d99a6); font-size: 14px;
+    }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+    .btn-danger {
+      background: #fff; color: #c0392b;
+      border: 1.5px solid #feb2b2;
+      border-radius: var(--border-radius, 6px);
+      width: 100%; padding: 9px; font-size: 14px; font-weight: 600;
+      cursor: pointer; margin-top: 8px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .15s;
+    }
+    .btn-danger:hover:not(:disabled) { background: #fdecea; }
+    .btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-recall {
+      background: #fff; color: #c07a00;
+      border: 1.5px solid #f6c96b;
+      border-radius: var(--border-radius, 6px);
+      width: 100%; padding: 9px; font-size: 14px; font-weight: 600;
+      cursor: pointer; margin-top: 8px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .15s, transform .1s;
+      position: relative; overflow: hidden;
+    }
+    .btn-recall:hover:not(:disabled) { background: #fef3e2; transform: translateY(-1px); }
+    .btn-recall:active:not(:disabled) { transform: scale(.98); }
+    .btn-recall:disabled { opacity: .5; cursor: not-allowed; }
+
+    .recall-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #c07a00; color: #fff;
+      width: 18px; height: 18px; border-radius: 50%;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+
+    @keyframes ring-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(192,122,0,.5); }
+      70%  { box-shadow: 0 0 0 10px rgba(192,122,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(192,122,0,0); }
+    }
+    .btn-recall.ringing { animation: ring-pulse 0.6s ease-out; }
+
+    .status-warning {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 16px; padding: 10px 14px;
+      background: #fef3e2; border-radius: 6px; border: 1px solid #f6c96b;
+      font-size: 13px; color: #7a4f00;
+    }
+
+    /* ── User avatar + dropdown ── */
+    .qms-user-wrap { position: relative; }
+    .qms-user-btn {
+      display: flex; align-items: center; gap: 8px;
+      min-height: 40px;
+      padding: 4px 10px 4px 4px;
+      border: 1px solid #d8dee8;
+      border-radius: 12px; background: var(--qms-surface);
+      cursor: pointer; transition: background .12s, border-color .12s;
+      box-shadow: 0 1px 1px rgba(15, 23, 42, 0.02);
+    }
+    .qms-user-btn:hover { background: #f8fafc; border-color: #bcc7d6; }
+    .qms-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--qms-accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 800; flex-shrink: 0; overflow: hidden;
+    }
+    .qms-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .qms-user-name { font-size: 12px; font-weight: 600; color: var(--qms-text); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qms-user-role { font-size: 10px; color: var(--qms-text-muted); }
+    .qms-chevron { font-size: 10px; color: var(--qms-text-muted); transition: transform .2s; }
+    .qms-chevron.open { transform: rotate(180deg); }
+
+    .qms-dropdown {
+      position: absolute; top: calc(100% + 8px); right: 0;
+      background: var(--qms-surface);
+      border: 1px solid #dfe6ee;
+      border-radius: 14px; min-width: 220px;
+      box-shadow: 0 18px 36px rgba(15,23,42,.14);
+      z-index: 200; overflow: hidden;
+      animation: qms-dd-in .15s ease;
+    }
+    @keyframes qms-dd-in {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .qms-dd-header {
+      padding: 12px 14px; border-bottom: 1px solid #edf1f5;
+      background: #fafbfd;
+    }
+    .qms-dd-name  { font-size: 13px; font-weight: 700; color: var(--qms-text); }
+    .qms-dd-email { font-size: 11px; color: var(--qms-text-muted); margin-top: 2px; word-break: break-all; }
+    .qms-dd-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; font-size: 13px; font-weight: 500;
+      color: var(--qms-text); cursor: pointer;
+      border: none; background: none; width: 100%; text-align: left;
+      transition: background .1s;
+    }
+    .qms-dd-item:hover { background: #f5f7fb; }
+    .qms-dd-item.danger { color: #c0392b; }
+    .qms-dd-item.danger:hover { background: #fdecea; }
+    .qms-dd-divider { height: 1px; background: #edf1f5; margin: 4px 0; }
+    .qms-dd-icon {
+      width: 16px;
+      text-align: center;
+      color: #7c8aa5;
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 1080px) {
+      .qms-body { overflow-y: auto; }
+      .qms-workspace {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .qms-panel.dashboard-panel { order: 1; }
+      .qms-panel.console-panel { order: 2; }
+      .qms-statsbar { flex-wrap: wrap; }
+    }
+  `;
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="officer-screen">
-      <style>{ConsoleStyles}</style>
-      
-      <div className="top-bar">
-        <div>
-          <h3 style={{ margin: 0 }}>Ministry of Infrastructure</h3>
-          <div className="user-info">Officer: <strong>{currentUserName}</strong></div>
-        </div>
-        
-        <div className="top-bar-controls">
-          {/* Status Dropdown */}
+    <div className="qms-root">
+      <style>{styles}</style>
+
+      {/* ── Topbar ── */}
+      <div className="qms-topbar qms-shell-header">
+        <div className="qms-topbar-left qms-shell-brand">
+          <div className="qms-topbar-logo qms-shell-logo"><Icon name="organization" style={{ marginRight: 0 }} /></div>
           <div>
-            <label style={{ marginRight: "8px" }}>Status:</label>
-            <select 
-              className={`input-field-small status-badge ${
-                status === "Open" ? "status-open" : 
-                status === "Break" ? "status-break" : "status-closed"
-              }`}
-              value={status} 
+            <div className="qms-topbar-title qms-shell-title"><Icon name="graph" /> Queue Management System</div>
+            <div className="qms-topbar-sub qms-shell-subtitle">Ministry of Infrastructure · Officer Console</div>
+          </div>
+        </div>
+
+        <div className="qms-topbar-right qms-shell-actions">
+          <div className="qms-toolbar-group">
+          {/* Service */}
+          <div className="qms-inline-field">
+            <span className="qms-inline-label">Service</span>
+            <select className="qms-select service" value={service} onChange={(e) => handleServiceChange(e.target.value)}>
+              <option value="">Select...</option>
+              {servicesList.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Counter */}
+          <div className="qms-inline-field">
+            <span className="qms-inline-label">Counter</span>
+            <select className="qms-select counter" value={counter} onChange={(e) => handleCounterChange(e.target.value)}>
+              <option value="">Select...</option>
+              {countersList.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+
+          {/* Status */}
+          <div className="qms-inline-field">
+            <span className="qms-inline-label">Status</span>
+            <select
+              className="qms-select status"
+              value={status}
               onChange={(e) => handleStatusChange(e.target.value)}
               disabled={loading}
             >
@@ -257,94 +723,215 @@ const handleStatusChange = async (newStatus) => {
             </select>
           </div>
 
-          <div>
-            <label style={{ marginRight: "8px" }}>Service:</label>
-            <select 
-              className="input-field-small"
-              value={service} 
-              onChange={(e) => handleServiceChange(e.target.value)}
-            >
-              <option value="">Select Service...</option>
-              {servicesList.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+          <span className={`qms-badge ${statusIndicator}`}>{status}</span>
           </div>
 
-          <div>
-            <label style={{ marginRight: "8px" }}>Counter:</label>
-            <select 
-              className="input-field-small"
-              value={counter} 
-              onChange={(e) => handleCounterChange(e.target.value)}
-            >
-              <option value="">Select Counter...</option>
-              {countersList.map((num) => (
-                <option key={num} value={num}>{num}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-{/* DASHBOARD BAR - DATA FROM QMS TICKET */}
-      <div className="dashboard-bar">
-        <div className="stat-item">
-            <span className="stat-label">Your Served (Today)</span>
-            <span className="stat-value val-served">{stats.served} Customers</span>
-        </div>
-        <div className="stat-item">
-            <span className="stat-label">In Queue ({service || 'No Service'})</span>
-            <span className="stat-value val-waiting">{stats.waiting} Waiting</span>
-        </div>
-      </div>
-
-      <div className="main-content">
-        {!activeTicket ? (
-          <div style={{ textAlign: 'center' }}>
-            <button 
-                className="btn-call" 
-                onClick={handleCallNext} 
-                disabled={loading || status !== "Open"}
-                style={{ opacity: status === "Open" ? 1 : 0.5 }}
-            >
-              {loading ? "CALLING..." : "CALL NEXT CUSTOMER"}
+          {/* User avatar + dropdown */}
+          <div className="qms-user-wrap" ref={userMenuRef}>
+            <button className="qms-user-btn" onClick={() => setUserMenuOpen(o => !o)}>
+              <div className="qms-avatar">
+                {userImage ? <img src={userImage} alt={currentUserName} /> : initials}
+              </div>
+              <div style={{ textAlign: "left" }}>
+                <div className="qms-user-name">{currentUserName}</div>
+                <div className="qms-user-role">Officer</div>
+              </div>
+              <span className={`qms-chevron${userMenuOpen ? " open" : ""}`}>▼</span>
             </button>
-            {status !== "Open" && (
-                <p style={{ marginTop: '1rem', color: '#e53e3e' }}>Set status to <strong>OPEN</strong> to call tickets.</p>
+
+            {userMenuOpen && (
+              <div className="qms-dropdown">
+                <div className="qms-dd-header">
+                  <div className="qms-dd-name">{currentUserName}</div>
+                  <div className="qms-dd-email">{currentUser}</div>
+                </div>
+                <button className="qms-dd-item" onClick={() => { setUserMenuOpen(false); window.location.href = "/app/user/" + currentUser; }}>
+                  <Icon name="person" />
+                  <span>My Profile</span>
+                </button>
+                <button className="qms-dd-item" onClick={() => { setUserMenuOpen(false); window.location.href = "/app"; }}>
+                  <Icon name="home" />
+                  <span>Back to Desk</span>
+                </button>
+                <div className="qms-dd-divider" />
+                <button className="qms-dd-item danger" onClick={() => { setUserMenuOpen(false); handleLogout(); }}>
+                  <Icon name="sign-out" />
+                  <span>Log Out</span>
+                </button>
+              </div>
             )}
           </div>
-        ) : (
-          <div className="card">
-            <p style={{ color: '#718096', margin: 0 }}>SERVING TICKET</p>
-            <div style={{ fontSize: '1.5rem', color: '#718096' }}>{activeTicket.name}</div>
-            <h1 style={{ fontSize: '6rem', margin: '0 0 1rem 0', color: '#2b6cb0' }}>
-              #{activeTicket.name.slice(-3)}
-            </h1>
-                      
-            <div className="input-group">
-              <label>Citizen Civil ID</label>
-              <input 
-                className="input-field"
-                value={activeTicket.customer_id || ""}
-                onChange={(e) => setActiveTicket({ ...activeTicket, customer_id: e.target.value })}
-              />
-            </div>
+        </div>
+      </div>
 
-            <div className="input-group">
-              <label>Citizen Full Name</label>
-              <input 
-                className="input-field"
-                value={activeTicket.customer_name || ""}
-                onChange={(e) => setActiveTicket({ ...activeTicket, customer_name: e.target.value })}
-              />
+      {/* ── Body ── */}
+      <div className="qms-body qms-content">
+        <div className="qms-workspace">
+          <section className="qms-panel dashboard-panel">
+            <div className="qms-panel-header">
+              <div>
+                <h2 className="qms-panel-title">Dashboard</h2>
+                <div className="qms-panel-subtitle">Live queue load across all services</div>
+              </div>
+              <button className="refresh-btn btn btn-sm btn-secondary" onClick={() => fetchQueueDashboard()}>
+                <Icon name="sync" /> Refresh
+              </button>
             </div>
+            <div className="qms-panel-content">
+              {queueDashboard.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon"><Icon name="inbox" style={{ fontSize: 24 }} /></div>
+                  <div>No services found or still loading…</div>
+                </div>
+              ) : (
+                <div className="dashboard-grid">
+                  {queueDashboard.map((item) => {
+                    const totalActivity = item.waiting + item.serving + item.completed;
+                    const waitPct = totalActivity ? Math.round((item.waiting / totalActivity) * 100) : 0;
+                    const busyIndicator = item.waiting > 10 ? "red" : item.waiting > 4 ? "orange" : "green";
+                    return (
+                      <div className="service-card" key={item.service}>
+                        <div className="service-card-header">
+                          <div className="service-card-name">{item.service}</div>
+                          <span className={`qms-badge ${busyIndicator === "green" ? "success" : busyIndicator === "orange" ? "warning" : "danger"}`}>
+                            {item.waiting > 10 ? "Busy" : item.waiting > 4 ? "Moderate" : "Clear"}
+                          </span>
+                        </div>
 
-            <button className="btn-complete" onClick={handleComplete} disabled={loading}>
-              COMPLETE & SAVE
-            </button>
-          </div>
-        )}
+                        <div className="service-metrics">
+                          <div className="metric-box waiting">
+                            <div className="m-label">Waiting</div>
+                            <div className="m-value">{item.waiting}</div>
+                          </div>
+                          <div className="metric-box serving">
+                            <div className="m-label">Serving</div>
+                            <div className="m-value">{item.serving}</div>
+                          </div>
+                          <div className="metric-box done">
+                            <div className="m-label">Done Today</div>
+                            <div className="m-value">{item.completed}</div>
+                          </div>
+                        </div>
+
+                        {totalActivity > 0 && (
+                          <div style={{ marginTop: 14 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>
+                              <span>Queue load</span><span>{waitPct}%</span>
+                            </div>
+                            <div style={{ height: 4, background: "#eee", borderRadius: 4, overflow: "hidden" }}>
+                              <div style={{
+                                height: "100%", borderRadius: 4,
+                                width: `${waitPct}%`,
+                                background: waitPct > 60 ? "#c0392b" : waitPct > 30 ? "#c07a00" : "#2c7a45",
+                                transition: "width .4s ease"
+                              }} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="qms-panel console-panel">
+            <div className="qms-panel-header">
+              <div>
+                <h2 className="qms-panel-title">Console</h2>
+                <div className="qms-panel-subtitle">Serve the next customer and complete active tickets</div>
+              </div>
+            </div>
+            <div className="qms-panel-content">
+              <div className="qms-statsbar">
+                <div className="stat-block">
+                  <span className="label">Served Today</span>
+                  <span className="value green">{stats.served}</span>
+                </div>
+                <div className="stat-block">
+                  <span className="label">Waiting ({service || "—"})</span>
+                  <span className="value red">{stats.waiting}</span>
+                </div>
+                {counter && (
+                  <div className="stat-block">
+                    <span className="label">Counter</span>
+                    <span className="value blue">{counter}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="console-center">
+            {!activeTicket ? (
+              <div style={{ textAlign: "center" }}>
+                <button
+                  className="btn-call-giant"
+                  onClick={handleCallNext}
+                  disabled={loading || status !== "Open"}
+                >
+                  {loading ? "Calling…" : "Call Next Customer"}
+                </button>
+                {status !== "Open" && (
+                  <div className="status-warning">
+                    <Icon name="alert" />
+                    <span>Set status to <strong>Open</strong> to call tickets.</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="frappe-card qms-card ticket-card">
+                <div className="ticket-subtitle">Now Serving</div>
+                <div className="ticket-name" style={{ marginTop: 4 }}>{activeTicket.name}</div>
+                <div className="ticket-number">#{activeTicket.name.slice(-3)}</div>
+
+                <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: 20 }}>
+                  <div className="frappe-control">
+                    <label>Citizen Civil ID</label>
+                    <input
+                      value={activeTicket.customer_id || ""}
+                      onChange={(e) => setActiveTicket({ ...activeTicket, customer_id: e.target.value })}
+                      placeholder="Enter Civil ID"
+                    />
+                  </div>
+                  <div className="frappe-control">
+                    <label>Citizen Full Name</label>
+                    <input
+                      value={activeTicket.customer_name || ""}
+                      onChange={(e) => setActiveTicket({ ...activeTicket, customer_name: e.target.value })}
+                      placeholder="Enter Full Name"
+                    />
+                  </div>
+                  <button
+                    className={`btn-recall qms-button warning${recalling ? " ringing" : ""}`}
+                    onClick={handleRecall}
+                    disabled={recalling}
+                    title="Announce this ticket number again at the counter display"
+                  >
+                    <Icon name="megaphone" /> Recall Customer
+                    {recallCount > 0 && (
+                      <span className="recall-badge">{recallCount}</span>
+                    )}
+                  </button>
+
+                  <button
+                    className="btn-danger qms-button danger"
+                    onClick={handleNoShow}
+                    disabled={loading}
+                    title="Customer did not arrive — mark as No Show"
+                  >
+                    <Icon name="x" /> No Show
+                  </button>
+
+                  <button className="btn-success qms-button success" onClick={handleComplete} disabled={loading}>
+                    {loading ? "Saving…" : <><Icon name="check" /> Complete & Save</>}
+                  </button>
+                </div>
+              </div>
+            )}
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
