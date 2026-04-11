@@ -12,7 +12,7 @@ export function useMinistryBranding() {
 
 	React.useEffect(() => {
 		frappe.db
-			.get_value('Website Setting', 'Website Setting', ['app_logo', 'app_name'])
+			.get_value('Website Settings', 'Website Settings', ['app_logo', 'app_name'])
 			.then((r) => {
 				if (r.message?.app_logo) {
 					setLogo(r.message.app_logo)
