@@ -2,6 +2,8 @@ import * as React from "react";
 import { getQmsPageStyles } from "../qms_shared/qmsTheme";
 import { useViewport } from "../qms_shared/useViewport";
 import { useEposPrinter } from "../qms_shared/useEposPrinter";
+import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
+import QRCode from "qrcode";
 
 // ── Views: "service" | "checklist" | "ticket" | "feedback" | "feedback_entry" | "thanks"
 export function QmsTerminal() {
@@ -38,6 +40,9 @@ export function QmsTerminal() {
   });
   const [showPrinterSettings, setShowPrinterSettings] = React.useState(false);
   const epos = useEposPrinter(printerConfig);
+
+  // Ministry branding
+  const { logo: ministryLogo, name: ministryName } = useMinistryBranding();
 
   // Auto-return to service view timer
   const autoReturnRef = React.useRef(null);
@@ -129,8 +134,22 @@ export function QmsTerminal() {
     await createTicket(svc);
   };
 
-  const buildTicketPrintHtml = (data) => {
+  const buildTicketPrintHtml = async (data) => {
     if (!data) return "";
+
+    // Generate QR code as data URL
+    let qrCodeDataUrl = "";
+    try {
+      qrCodeDataUrl = await QRCode.toDataURL(data.fullNumber, {
+        errorCorrectionLevel: "M",
+        type: "image/png",
+        width: 120,
+        margin: 1,
+      });
+    } catch (e) {
+      console.warn("[buildTicketPrintHtml] QR code generation failed:", e);
+    }
+
     return `<!doctype html>
       <html>
       <head>
@@ -141,6 +160,8 @@ export function QmsTerminal() {
           html, body { width: 80mm; height: auto; margin: 0; padding: 0; }
           body { padding: 4mm; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; width: 80mm; box-sizing: border-box; }
           .ticket { width: 100%; margin: 0 auto; text-align: center; padding: 4mm; box-sizing: border-box; }
+          .header-logo { width: 100%; margin-bottom: 6px; max-width: 60px; margin-left: auto; margin-right: auto; }
+          .ministry-name { font-size: 10pt; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.05em; }
           .paper-info { font-size: 6pt; color: #999; margin-bottom: 4mm; border-bottom: 1px dotted #ccc; padding-bottom: 2mm; }
           .logo { font-size: 13px; font-weight: 900; letter-spacing: 0.08em; margin-bottom: 6px; }
           .title { font-size: 18pt; font-weight: 800; margin: 4px 0 10px; }
@@ -152,6 +173,8 @@ export function QmsTerminal() {
           .barcode-line { background: #000; height: 100%; }
           .narrow { width: 2px; }
           .wide { width: 4px; }
+          .qr-code { margin: 12px auto; }
+          .qr-code img { width: 100px; height: 100px; image-rendering: pixelated; }
           .footer { font-size: 8pt; border-top: 1px dashed #333; padding-top: 6px; margin-top: 12px; color: #333; }
           @media print {
             html, body { width: 80mm; height: auto; margin: 0; padding: 0; }
@@ -161,8 +184,10 @@ export function QmsTerminal() {
       </head>
       <body>
         <div class="ticket">
+          ${ministryLogo ? `<img src="${ministryLogo}" class="header-logo" alt="Ministry Logo" />` : ""}
+          <div class="ministry-name">${ministryName}</div>
           <div class="paper-info">POS Printer | 80mm</div>
-          <div class="logo">MOI QMS</div>
+          <div class="logo">QMS</div>
           <div class="title">Ticket #${data.displayNumber}</div>
           <div class="service">${data.service}</div>
           <div class="sub">${data.time}</div>
@@ -176,6 +201,7 @@ export function QmsTerminal() {
             </div>
             <div style="font-size: 9pt; margin-top: 5px;">${data.fullNumber}</div>
           </div>
+          ${qrCodeDataUrl ? `<div class="qr-code"><img src="${qrCodeDataUrl}" alt="QR Code" /></div>` : ""}
           <div class="footer">
             Present this ticket at the counter when called.<br />Thank you for your patience.
           </div>
@@ -188,14 +214,14 @@ export function QmsTerminal() {
     if (!ticketData) return;
 
     // Fallback: Browser popup print
-    const printViaBrowser = () => {
+    const printViaBrowser = async () => {
       const printWindow = window.open("", "_blank", "width=600,height=680");
       if (!printWindow) {
         frappe.show_alert({ message: "Unable to open print window. Please allow popups.", indicator: "red" });
         return;
       }
 
-      const htmlContent = buildTicketPrintHtml(ticketData);
+      const htmlContent = await buildTicketPrintHtml(ticketData);
       printWindow.document.write(htmlContent);
       printWindow.document.close();
       printWindow.focus();

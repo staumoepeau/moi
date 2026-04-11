@@ -1,5 +1,6 @@
 import * as React from "react";
 import { getQmsPageStyles, qmsStatusTone } from "../qms_shared/qmsTheme";
+import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
 
 // ── Tiny bar-chart component (no external deps) ──────────────────────────
 function MiniBar({ data, valueKey, labelKey, color = "#2490ef", height = 120 }) {
@@ -67,6 +68,9 @@ export function QmsDashboard() {
 	const fullName = currentUserInfo.fullname || currentUser;
 	const userImage = currentUserInfo.image || null;
 	const initials = fullName.split(" ").filter(Boolean).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+	// Ministry branding
+	const { logo: ministryLogo } = useMinistryBranding();
 
 	const [view, setView] = React.useState("dashboard"); // "dashboard" | "report" | "feedback"
 	const [reportDate, setReportDate] = React.useState(frappe.datetime.get_today());
@@ -501,7 +505,11 @@ export function QmsDashboard() {
 			{/* Header */}
 			<div className="adm-header qms-shell-header">
 				<div className="adm-header-left qms-shell-brand">
-					<div className="adm-logo qms-shell-logo">Q</div>
+					{ministryLogo ? (
+						<img src={ministryLogo} style={{ height: 40, width: "auto", borderRadius: 8, flexShrink: 0 }} alt="Ministry Logo" />
+					) : (
+						<div className="adm-logo qms-shell-logo">Q</div>
+					)}
 					<div>
 						<div className="adm-title qms-shell-title">QMS Admin</div>
 						<div className="adm-sub qms-shell-subtitle">Ministry of Infrastructure · Queue Management</div>

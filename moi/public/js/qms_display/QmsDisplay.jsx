@@ -1,5 +1,6 @@
 import * as React from "react";
 import { getQmsPageStyles } from "../qms_shared/qmsTheme";
+import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
 
 export function QmsDisplay() {
   const [nowServing, setNowServing] = React.useState({ ticket: "---", counter: "--", service: "" });
@@ -7,6 +8,9 @@ export function QmsDisplay() {
   const [isStarted, setIsStarted] = React.useState(false);
   const [isRecall, setIsRecall] = React.useState(false); // flashes the recall badge
   const [queueCounts, setQueueCounts] = React.useState([]); // per-service waiting counts
+
+  // Ministry branding
+  const { logo: ministryLogo } = useMinistryBranding();
 
   const Icon = ({ name, className = "", style = {} }) => (
     <i className={`octicon octicon-${name} ${className}`} style={{ marginRight: 6, ...style }} aria-hidden="true" />
@@ -317,7 +321,11 @@ export function QmsDisplay() {
       {/* Header */}
       <div className="ds-header qms-shell-header">
         <div className="ds-header-left qms-shell-brand">
-          <div className="ds-logo qms-shell-logo"><Icon name="broadcast" style={{ marginRight: 0 }} /></div>
+          {ministryLogo ? (
+            <img src={ministryLogo} style={{ height: 40, width: "auto", borderRadius: 8, flexShrink: 0 }} alt="Ministry Logo" />
+          ) : (
+            <div className="ds-logo qms-shell-logo"><Icon name="broadcast" style={{ marginRight: 0 }} /></div>
+          )}
           <div>
             <div className="ds-title qms-shell-title"><Icon name="dashboard" /> Queue Management System</div>
             <div className="ds-subtitle qms-shell-subtitle">Ministry of Infrastructure · Public Display</div>

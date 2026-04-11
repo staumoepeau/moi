@@ -1,5 +1,6 @@
 import * as React from "react";
 import { getQmsPageStyles, qmsStatusTone } from "../qms_shared/qmsTheme";
+import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
 
 export function QmsConsole() {
   const currentUser      = frappe.session.user;
@@ -7,6 +8,9 @@ export function QmsConsole() {
   const currentUserName  = currentUserInfo.fullname || currentUser;
   const userImage        = currentUserInfo.image || null;
   const initials         = currentUserName.split(" ").filter(Boolean).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+  // Ministry branding
+  const { logo: ministryLogo } = useMinistryBranding();
 
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
   const userMenuRef = React.useRef(null);
@@ -681,7 +685,11 @@ export function QmsConsole() {
       {/* ── Topbar ── */}
       <div className="qms-topbar qms-shell-header">
         <div className="qms-topbar-left qms-shell-brand">
-          <div className="qms-topbar-logo qms-shell-logo"><Icon name="organization" style={{ marginRight: 0 }} /></div>
+          {ministryLogo ? (
+            <img src={ministryLogo} style={{ height: 38, width: "auto", borderRadius: 6, flexShrink: 0 }} alt="Ministry Logo" />
+          ) : (
+            <div className="qms-topbar-logo qms-shell-logo"><Icon name="organization" style={{ marginRight: 0 }} /></div>
+          )}
           <div>
             <div className="qms-topbar-title qms-shell-title"><Icon name="graph" /> Queue Management System</div>
             <div className="qms-topbar-sub qms-shell-subtitle">Ministry of Infrastructure · Officer Console</div>
