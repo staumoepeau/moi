@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "creation": "2026-04-15 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "recalled_at",
+  "recalled_by",
+  "recalled_by_name",
+  "recall_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "recalled_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Recalled At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recalled_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Recalled By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "recalled_by.full_name",
+   "fieldname": "recalled_by_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Officer Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recall_note",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Note"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "MOI QMS",
+ "name": "QMS Ticket Recall",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}

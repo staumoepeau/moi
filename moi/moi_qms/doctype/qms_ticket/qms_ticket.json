@@ -6,17 +6,22 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "customer_name",
   "customer_id",
   "service_requested",
-  "status",
   "counter",
   "officer",
-  "officer_name",
   "waiting_since",
-  "called_at",
   "completed_at",
-  "column_break_zlmv"
+  "marked_for_recall",
+  "column_break_zlmv",
+  "customer_name",
+  "status",
+  "officer_name",
+  "called_at",
+  "no_show_at",
+  "section_break_wuut",
+  "recall_reason",
+  "recall_history"
  ],
  "fields": [
   {
@@ -76,6 +81,29 @@
    "label": "Completed At"
   },
   {
+   "fieldname": "no_show_at",
+   "fieldtype": "Datetime",
+   "label": "No Show At"
+  },
+  {
+   "default": "0",
+   "fieldname": "marked_for_recall",
+   "fieldtype": "Check",
+   "label": "Marked for Recall"
+  },
+  {
+   "depends_on": "eval:doc.marked_for_recall == 1",
+   "fieldname": "recall_reason",
+   "fieldtype": "Small Text",
+   "label": "Recall Reason"
+  },
+  {
+   "fieldname": "recall_history",
+   "fieldtype": "Table",
+   "label": "Recall History",
+   "options": "QMS Ticket Recall"
+  },
+  {
    "fieldname": "officer",
    "fieldtype": "Link",
    "label": "Officer",
@@ -90,12 +118,16 @@
    "in_standard_filter": 1,
    "label": "Officer Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_wuut",
+   "fieldtype": "Section Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-08 13:04:36.648208",
+ "modified": "2026-04-16 09:54:16.851133",
  "modified_by": "Administrator",
  "module": "MOI QMS",
  "name": "QMS Ticket",

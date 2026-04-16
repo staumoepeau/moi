@@ -51,8 +51,9 @@
   },
   {
    "fieldname": "image",
-   "fieldtype": "Attach Image",
-   "label": "Image"
+   "fieldtype": "Select",
+   "label": "Icon",
+   "options": "fa-home\nfa-wrench\nfa-users\nfa-cog\nfa-file\nfa-phone\nfa-building\nfa-hospital\nfa-school\nfa-briefcase\nfa-truck\nfa-box\nfa-credit-card\nfa-envelope\nfa-calendar\nfa-chart-bar\nfa-lock\nfa-shield\nfa-star\nfa-check"
   },
   {
    "fieldname": "background_color",

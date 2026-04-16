@@ -1,9 +1,14 @@
 /**
  * useEposPrinter() — React hook for EPSON ePOS SDK management
  * Handles SDK loading, printer connection, and ticket printing
+ * Uses the correct EPSON ePOS SDK 2.27.0 callback-based API
  */
 
 import React from 'react'
+
+// Port constants: SDK auto-selects http vs https based on port
+const DEFAULT_PORT_HTTP = 8008  // ePOS over HTTP
+const DEFAULT_PORT_HTTPS = 8043 // ePOS over TLS
 
 export function useEposPrinter(config) {
 	// config = { ip, port, deviceId } from localStorage
@@ -11,7 +16,7 @@ export function useEposPrinter(config) {
 	const [error, setError] = React.useState(null)
 	const [sdkReady, setSdkReady] = React.useState(false)
 
-	const printerRef = React.useRef(null)
+	const printerRef = React.useRef(null) // { device, ePosDev }
 	const pendingPrintRef = React.useRef(null)
 
 	// Load EPSON SDK script lazily
@@ -48,7 +53,7 @@ export function useEposPrinter(config) {
 		})
 	}, [])
 
-	// Connect to printer
+	// Connect to printer using the correct EPSON ePOS SDK callback-based API
 	const connect = React.useCallback(
 		async (ip, port, deviceId) => {
 			if (!ip || !port) {
@@ -57,68 +62,76 @@ export function useEposPrinter(config) {
 				return
 			}
 
+			// Detect page protocol and auto-select port if not explicitly set
+			const isSecurePage = window.location.protocol === 'https:'
+			const effectivePort = parseInt(port, 10) || (isSecurePage ? DEFAULT_PORT_HTTPS : DEFAULT_PORT_HTTP)
+
+			// Guard: HTTPS page + HTTP printer port = iOS mixed-content block
+			if (isSecurePage && effectivePort === DEFAULT_PORT_HTTP) {
+				setStatus('error')
+				setError(
+					`Mixed-content blocked: page is HTTPS but printer port is ${DEFAULT_PORT_HTTP}. ` +
+					`Change printer port to ${DEFAULT_PORT_HTTPS} and enable HTTPS on the printer.`
+				)
+				console.error('[useEposPrinter] Mixed-content: cannot use port 8008 on HTTPS page')
+				return
+			}
+
 			try {
 				setStatus('connecting')
 				setError(null)
 
-				const ePOSDevice = await loadSdk()
+				// Load the SDK
+				await loadSdk()
 
-				const ePosDev = new ePOSDevice(
-					`http://${ip}:${port}/`,
-					parseInt(port),
-					ePOSDevice.TYPE_PRINTER,
-					deviceId,
-					null
-				)
+				// Step 1: Create the ePOS device manager (no constructor args)
+				const ePosDev = new window.epson.ePOSDevice()
 
-				ePosDev.addEventListener(
-					ePOSDevice.EVENT_CONNECT,
-					() => {
-						printerRef.current = ePosDev
-						setStatus('ready')
-						setError(null)
-						console.log('[useEposPrinter] Connected to printer:', ip)
-
-						// Execute any pending print
-						if (pendingPrintRef.current) {
-							const pending = pendingPrintRef.current
-							pendingPrintRef.current = null
-							executePrint(pending)
-						}
-					},
-					false
-				)
-
-				ePosDev.addEventListener(
-					ePOSDevice.EVENT_DISCONNECT,
-					() => {
-						printerRef.current = null
-						setStatus('idle')
-						console.log('[useEposPrinter] Disconnected from printer')
-					},
-					false
-				)
-
-				ePosDev.addEventListener(
-					ePOSDevice.EVENT_RECONNECT,
-					() => {
-						setStatus('ready')
-						console.log('[useEposPrinter] Reconnected to printer')
-					},
-					false
-				)
-
-				ePosDev.addEventListener(
-					ePOSDevice.EVENT_TIMEOUT,
-					() => {
+				// Step 2: Connect to the printer — SDK auto-selects http vs https based on port
+				ePosDev.connect(ip, effectivePort, (connectResult) => {
+					if (connectResult !== 'OK' && connectResult !== 'SSL_CONNECT_OK') {
 						setStatus('error')
-						setError('Connection timeout')
-						console.error('[useEposPrinter] Connection timeout')
-					},
-					false
-				)
+						setError(`Printer connection failed: ${connectResult}`)
+						console.error('[useEposPrinter] Connect failed:', connectResult)
+						return
+					}
 
-				ePosDev.connect()
+					// Step 3: Open the printer device
+					const resolvedDeviceId = deviceId || 'local_printer'
+					ePosDev.createDevice(
+						resolvedDeviceId,
+						ePosDev.DEVICE_TYPE_PRINTER,
+						{ crypto: isSecurePage, buffer: false },
+						(device, createCode) => {
+							if (createCode !== 'OK') {
+								setStatus('error')
+								setError(`Printer device open failed: ${createCode}`)
+								console.error('[useEposPrinter] createDevice failed:', createCode)
+								return
+							}
+
+							// Attach disconnect handler
+							ePosDev.ondisconnect = () => {
+								printerRef.current = null
+								setStatus('idle')
+								console.log('[useEposPrinter] Disconnected from printer')
+							}
+
+							// Store both the printer device and the connection manager
+							printerRef.current = { device, ePosDev }
+							setStatus('ready')
+							setError(null)
+							console.log('[useEposPrinter] Connected to printer:', ip, effectivePort)
+
+							// Flush any queued print
+							if (pendingPrintRef.current) {
+								const pending = pendingPrintRef.current
+								pendingPrintRef.current = null
+								executePrint(pending)
+							}
+						}
+					)
+				})
 			} catch (err) {
 				setStatus('error')
 				setError(err.message)
@@ -128,59 +141,81 @@ export function useEposPrinter(config) {
 		[loadSdk]
 	)
 
-	// Print ticket
+	// Print ticket using the Printer object's callback methods (silent print - no dialog)
 	const executePrint = (ticketData) => {
-		if (!printerRef.current) {
+		if (!printerRef.current?.device) {
 			console.warn('[useEposPrinter] Printer not connected')
 			return Promise.reject(new Error('Printer not connected'))
 		}
 
 		return new Promise((resolve, reject) => {
 			try {
-				const printer = printerRef.current
-				const ePOSPrinter = new window.epson.ePOSPrinter()
+				const printer = printerRef.current.device // The Printer object from createDevice
 
-				// Build receipt
-				ePOSPrinter.addTextAlign(ePOSPrinter.ALIGN_CENTER)
-				ePOSPrinter.addText('MOI QMS\n')
-				ePOSPrinter.addTextSize(2, 2)
-				ePOSPrinter.addText(`${ticketData.displayNumber}\n`)
-				ePOSPrinter.addTextSize(1, 1)
-				ePOSPrinter.addText(`${ticketData.service}\n`)
-				ePOSPrinter.addText(`${ticketData.time}\n`)
+				// Build receipt matching the MOI QMS ticket format
+				// Header: Ministry branding
+				printer.addTextAlign(printer.ALIGN_CENTER)
+				printer.addText('\n')
+				printer.addText('MINISTRY OF INFRASTRUCTURE\n')
+				printer.addText('\n')
 
-				// Barcode (Code39)
-				ePOSPrinter.addBarcode(
+				// Service and timestamp
+				printer.addTextSize(1, 1)
+				printer.addText(`${ticketData.service}\n`)
+				printer.addText(`\n`)
+				printer.addText(`${ticketData.time}\n`)
+				printer.addText(`\n`)
+
+				// Main ticket number heading
+				printer.addTextSize(3, 3)
+				printer.addText(`Ticket #${ticketData.displayNumber}\n`)
+				printer.addTextSize(1, 1)
+				printer.addText(`\n`)
+
+				// Full ticket number (for reference)
+				printer.addText(`${ticketData.fullNumber}\n`)
+				printer.addText(`\n`)
+
+				// Barcode (Code39) — silent printing means no user interaction needed
+				printer.addBarcode(
 					ticketData.fullNumber,
-					ePOSPrinter.BARCODE_CODE39,
-					ePOSPrinter.HRI_BELOW,
-					ePOSPrinter.FONT_A,
+					printer.BARCODE_CODE39,
+					printer.HRI_BELOW,
+					printer.FONT_A,
 					40,
 					100
 				)
 
-				ePOSPrinter.addCut(ePOSPrinter.CUT_FEED)
+				// Footer instructions
+				printer.addText(`\n`)
+				printer.addTextAlign(printer.ALIGN_CENTER)
+				printer.addTextSize(1, 1)
+				printer.addText(`Present this ticket at the counter\n`)
+				printer.addText(`when called.\n`)
+				printer.addText(`Thank you for your patience.\n`)
+				printer.addText(`\n`)
 
-				// Send to printer
-				printer.addListener(
-					window.epson.ePOSDevice.EVENT_PRINT_SUCCESS,
-					() => {
-						console.log('[useEposPrinter] Print succeeded')
+				// Cut the paper
+				printer.addCut(printer.CUT_FEED)
+
+				// Attach result handlers BEFORE calling send()
+				printer.onreceive = (res) => {
+					if (res.success) {
+						console.log('[useEposPrinter] Print succeeded (silent)')
 						resolve('epson_ok')
-					},
-					false
-				)
+					} else {
+						console.error('[useEposPrinter] Print failed, code:', res.code)
+						reject(new Error(`Print failed: ${res.code}`))
+					}
+				}
 
-				printer.addListener(
-					window.epson.ePOSDevice.EVENT_PRINT_FAILURE,
-					(code) => {
-						console.error('[useEposPrinter] Print failed:', code)
-						reject(new Error(`Print failed: ${code}`))
-					},
-					false
-				)
+				printer.onerror = (err) => {
+					console.error('[useEposPrinter] Print error event:', err)
+					reject(new Error(`Printer error: ${JSON.stringify(err)}`))
+				}
 
-				printer.sendMessage(ePOSPrinter)
+				// Send to printer — prints silently without any dialog
+				printer.send()
 			} catch (err) {
 				console.error('[useEposPrinter] Print error:', err)
 				reject(err)
@@ -206,8 +241,26 @@ export function useEposPrinter(config) {
 		if (status === 'ready') return true
 		if (!config.ip || !config.port) return false
 		try {
-			await connect(config.ip, config.port, config.deviceId || 'local_printer')
-			return true
+			// Call connect and wait for status change
+			await new Promise((resolve) => {
+				const checkStatus = setTimeout(() => {
+					// After 5 seconds, assume connection attempt was made
+					clearInterval(statusCheckInterval)
+					resolve()
+				}, 5000)
+
+				// Also resolve immediately on status change to ready/error
+				const statusCheckInterval = setInterval(() => {
+					if (status === 'ready' || status === 'error') {
+						clearTimeout(checkStatus)
+						clearInterval(statusCheckInterval)
+						resolve()
+					}
+				}, 100)
+
+				connect(config.ip, config.port, config.deviceId || 'local_printer')
+			})
+			return status === 'ready'
 		} catch {
 			return false
 		}
@@ -226,12 +279,10 @@ export function useEposPrinter(config) {
 	// Cleanup
 	React.useEffect(() => {
 		return () => {
-			if (printerRef.current?.disconnect) {
-				try {
-					printerRef.current.disconnect()
-				} catch (e) {
-					console.warn('[useEposPrinter] Disconnect warning:', e)
-				}
+			try {
+				printerRef.current?.ePosDev?.disconnect()
+			} catch (e) {
+				console.warn('[useEposPrinter] Disconnect warning:', e)
 			}
 		}
 	}, [])

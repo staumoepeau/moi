@@ -72,11 +72,17 @@ export function QmsDashboard() {
 	// Ministry branding
 	const { logo: ministryLogo } = useMinistryBranding();
 
-	const [view, setView] = React.useState("dashboard"); // "dashboard" | "report" | "feedback"
-	const [reportDate, setReportDate] = React.useState(frappe.datetime.get_today());
+	const [view, setView] = React.useState("dashboard"); // "dashboard" | "live" | "report" | "feedback"
+	const [reportDateFrom, setReportDateFrom] = React.useState(frappe.datetime.get_today());
+	const [reportDateTo, setReportDateTo] = React.useState(frappe.datetime.get_today());
 	const [loading, setLoading] = React.useState(false);
 	const [userMenuOpen, setUserMenuOpen] = React.useState(false);
 	const userMenuRef = React.useRef(null);
+
+	// Live Monitor data
+	const [counters, setCounters] = React.useState([]);
+	const [liveTickets, setLiveTickets] = React.useState([]);
+	const [selectedTicket, setSelectedTicket] = React.useState(null);
 
 	// Close dropdown when clicking outside
 	React.useEffect(() => {
@@ -205,21 +211,21 @@ export function QmsDashboard() {
 		}
 	}, []);
 
-	// ── Fetch report for selected date ────────────────────────────────────
+	// ── Fetch report for date range ────────────────────────────────────
 	const fetchReport = React.useCallback(async () => {
 		setLoading(true);
 		try {
-			const nextDay = frappe.datetime.add_days(reportDate, 1);
+			const endDay = frappe.datetime.add_days(reportDateTo, 1);
 			const [tickets, feedbacks] = await Promise.all([
 				frappe.db.get_list("QMS Ticket", {
 					fields: ["name", "status", "service_requested", "officer", "creation", "completed_at", "customer_name", "customer_id"],
-					filters: [["creation", ">=", reportDate], ["creation", "<", nextDay]],
+					filters: [["creation", ">=", reportDateFrom], ["creation", "<", endDay]],
 					limit: 1000,
 					order_by: "creation asc",
 				}),
 				frappe.db.get_list("QMS Feedback", {
 					fields: ["ticket", "rating", "comment", "service", "submitted_at"],
-					filters: [["submitted_at", ">=", reportDate], ["submitted_at", "<", nextDay]],
+					filters: [["submitted_at", ">=", reportDateFrom], ["submitted_at", "<", endDay]],
 					limit: 1000,
 					order_by: "submitted_at asc",
 				}),
@@ -232,10 +238,10 @@ export function QmsDashboard() {
 		} finally {
 			setLoading(false);
 		}
-	}, [reportDate]);
+	}, [reportDateFrom, reportDateTo]);
 
 	React.useEffect(() => { fetchDashboard(); }, []);
-	React.useEffect(() => { if (view === "report" || view === "feedback") fetchReport(); }, [view, reportDate]);
+	React.useEffect(() => { if (view === "report" || view === "feedback") fetchReport(); }, [view, reportDateFrom, reportDateTo, fetchReport]);
 
 	const downloadTicketsCSV = () => {
 		const rows = reportRows.map(t => ({
@@ -248,7 +254,7 @@ export function QmsDashboard() {
 			"Created": t.creation,
 			"Completed At": t.completed_at || "",
 		}));
-		exportCSV(rows, `QMS_Tickets_${reportDate}.csv`);
+		exportCSV(rows, `QMS_Tickets_${reportDateFrom}_to_${reportDateTo}.csv`);
 	};
 
 	const downloadFeedbackCSV = () => {
@@ -259,7 +265,7 @@ export function QmsDashboard() {
 			"Comment": f.comment || "",
 			"Submitted At": f.submitted_at,
 		}));
-		exportCSV(rows, `QMS_Feedback_${reportDate}.csv`);
+		exportCSV(rows, `QMS_Feedback_${reportDateFrom}_to_${reportDateTo}.csv`);
 	};
 
 	const downloadBIReport = () => {
@@ -270,7 +276,141 @@ export function QmsDashboard() {
 			"Pending": s.pending,
 			"Avg Handling Time (min)": s.avgMinutes,
 		}));
-		exportCSV(rows, `QMS_BI_ServiceKPIs_${reportDate}.csv`);
+		exportCSV(rows, `QMS_BI_ServiceKPIs_${reportDateFrom}_to_${reportDateTo}.csv`);
+	};
+
+	// ── Fetch live counters and tickets ────────────────────────────────────
+	const fetchLive = React.useCallback(async () => {
+		try {
+			const [ctrs, tickets] = await Promise.all([
+				frappe.db.get_list("QMS Counter", {
+					fields: ["name", "counter_number", "status"],
+					limit: 50
+				}),
+				frappe.db.get_list("QMS Ticket", {
+					fields: ["name", "status", "service_requested", "officer", "counter", "called_at", "creation", "customer_name"],
+					filters: [["status", "in", ["Waiting", "Called", "Serving"]]],
+					limit: 200,
+					order_by: "creation asc"
+				})
+			]);
+			setCounters(ctrs);
+			setLiveTickets(tickets);
+		} catch (e) {
+			console.error("Live fetch error:", e);
+		}
+	}, []);
+
+	// ── Fetch counters for dashboard ────────────────────────────────────────
+	React.useEffect(() => {
+		if (view === "dashboard") {
+			fetchLive();
+		}
+	}, [view, fetchLive]);
+
+	// ── Realtime subscriptions for Live Monitor ────────────────────────────
+	React.useEffect(() => {
+		if (view !== "live") return;
+
+		fetchLive();
+		const liveInterval = setInterval(fetchLive, 20000);
+
+		const handleCounterStatusUpdate = ({ counter, status }) => {
+			setCounters(prev => prev.map(c => c.name === counter ? { ...c, status } : c));
+		};
+
+		frappe.realtime.on("counter_status_updated", handleCounterStatusUpdate);
+		frappe.realtime.on("ticket_called", fetchLive);
+		frappe.realtime.on("ticket_recalled", fetchLive);
+		frappe.realtime.on("qms_update", fetchLive);
+
+		return () => {
+			clearInterval(liveInterval);
+			frappe.realtime.off("counter_status_updated", handleCounterStatusUpdate);
+			frappe.realtime.off("ticket_called", fetchLive);
+			frappe.realtime.off("ticket_recalled", fetchLive);
+			frappe.realtime.off("qms_update", fetchLive);
+		};
+	}, [view, fetchLive]);
+
+	// ── Ticket action handlers ──────────────────────────────────────────────
+	const handleRecall = (ticket) => {
+		frappe.confirm(
+			`Re-call ticket ${ticket.name}?`,
+			() => {
+				frappe.call({
+					method: "moi.api.qms.recall_ticket",
+					args: {
+						ticket_id: ticket.name,
+						counter_number: ticket.counter || "",
+						officer: currentUser
+					},
+					callback: () => {
+						frappe.show_alert({ message: "Ticket recalled", indicator: "green" });
+						fetchLive();
+						setSelectedTicket(null);
+					},
+					error: () => frappe.show_alert({ message: "Failed to recall ticket", indicator: "red" })
+				});
+			}
+		);
+	};
+
+	const handleComplete = (ticket) => {
+		frappe.confirm(
+			`Mark ticket ${ticket.name} as completed?`,
+			() => {
+				frappe.call({
+					method: "moi.api.qms.complete_service",
+					args: { ticket_id: ticket.name },
+					callback: () => {
+						frappe.show_alert({ message: "Ticket completed", indicator: "green" });
+						fetchLive();
+						setSelectedTicket(null);
+					},
+					error: () => frappe.show_alert({ message: "Failed to complete ticket", indicator: "red" })
+				});
+			}
+		);
+	};
+
+	const handleNoShow = (ticket) => {
+		frappe.confirm(
+			`Mark ticket ${ticket.name} as no-show?`,
+			() => {
+				frappe.call({
+					method: "moi.api.qms.no_show",
+					args: {
+						ticket_id: ticket.name,
+						officer: currentUser,
+						counter_number: ticket.counter || ""
+					},
+					callback: () => {
+						frappe.show_alert({ message: "Ticket marked as no-show", indicator: "green" });
+						fetchLive();
+						setSelectedTicket(null);
+					},
+					error: () => frappe.show_alert({ message: "Failed to mark as no-show", indicator: "red" })
+				});
+			}
+		);
+	};
+
+	const handleToggleCounterStatus = (counter, newStatus) => {
+		frappe.call({
+			method: "moi.api.qms.update_counter_status",
+			args: {
+				counter_number: counter.counter_number,
+				status: newStatus,
+				service: "", // admin view doesn't specify service
+				officer: currentUser
+			},
+			callback: () => {
+				frappe.show_alert({ message: `Counter ${counter.counter_number} set to ${newStatus}`, indicator: "green" });
+				fetchLive();
+			},
+			error: () => frappe.show_alert({ message: "Failed to update counter status", indicator: "red" })
+		});
 	};
 
 	// ── Styles ──────────────────────────────────────────────────────────────
@@ -375,7 +515,7 @@ export function QmsDashboard() {
     .adm-body { flex: 1; padding: 28px 32px; overflow-y: auto; }
 
     /* ── KPI cards row ── */
-    .adm-kpi-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 14px; margin-bottom: 24px; }
+    .adm-kpi-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 14px; }
     .adm-kpi {
       background: #fff; border: 1px solid #e2e6e9;
       border-radius: 10px; padding: 16px 18px;
@@ -395,8 +535,8 @@ export function QmsDashboard() {
     /* ── Section card ── */
     .adm-card {
       background: #fff; border: 1px solid #e2e6e9;
-      border-radius: 10px; padding: 20px 22px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.04); margin-bottom: 20px;
+      border-radius: 10px; padding: 16px 18px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.04); margin-bottom: 12px;
     }
     .adm-card-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -407,8 +547,8 @@ export function QmsDashboard() {
     .adm-card-sub   { font-size: 12px; color: #8d99a6; margin-top: 2px; }
 
     /* ── Two-col grid ── */
-    .adm-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-    .adm-three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    .adm-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 12px; }
+    .adm-three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 12px; }
 
     /* ── Table ── */
     .adm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -484,9 +624,70 @@ export function QmsDashboard() {
     }
     .rsummary-pill span { color: #2490ef; }
 
+    /* ── Counter Grid (Compact - for Dashboard) ── */
+    .counter-grid-compact {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;
+      margin-top: 8px;
+    }
+    .counter-card-compact {
+      align-items: center; justify-content: space-between;
+      padding: 10px 16px; background: #f9fafb; border: 1px solid #e2e6e9;
+      border-radius: 6px; gap: 8px;
+    }
+    .counter-name-compact {
+      font-size: 12px; font-weight: 600; color: #1f272e; flex: 1;
+    }
+
+    /* ── Counter Grid (Full - for Live Monitor) ── */
+    .counter-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px;
+      margin-top: 12px;
+    }
+    .counter-card {
+      background: #fff; border: 1px solid #e2e6e9; border-radius: 10px;
+      padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
+    .counter-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 14px; gap: 8px; flex-wrap: wrap;
+    }
+    .counter-name {
+      font-size: 14px; font-weight: 700; color: #1f272e; flex: 1;
+    }
+    .counter-actions {
+      display: flex; gap: 6px; flex-wrap: wrap; width: 100%;
+    }
+    .counter-btn {
+      flex: 1; min-width: 65px; padding: 8px 10px;
+      font-size: 12px; font-weight: 600; border: 1px solid #d1d8dd;
+      border-radius: 6px; background: #fff; color: #1f272e; cursor: pointer;
+      transition: all .12s; white-space: nowrap; text-overflow: ellipsis;
+    }
+    .counter-btn:hover:not(:disabled) { background: #f4f5f7; border-color: #2490ef; }
+    .counter-btn:disabled { opacity: .5; cursor: not-allowed; background: #e2e6e9; }
+    .counter-btn.active { background: #2490ef; color: #fff; border-color: #2490ef; font-weight: 700; }
+
+    /* ── Live Queue ── */
+    .ticket-row {
+      transition: background .1s;
+    }
+    .ticket-row.status-waiting { }
+    .ticket-row.status-called { background: #fffbf0; }
+    .ticket-row.status-serving { background: #f0f7ff; }
+    .ticket-row:hover { background: rgba(36, 144, 239, .05); }
+
+    .action-row {
+      background: #f9fafb; border-top: 1px solid #e2e6e9;
+    }
+    .ticket-actions {
+      display: flex; gap: 8px; padding: 12px; align-items: center;
+    }
+    .ticket-actions .adm-btn { flex-shrink: 0; }
+
     @media (max-width: 1100px) {
       .adm-kpi-row { grid-template-columns: repeat(4, 1fr); }
       .adm-two-col, .adm-three-col { grid-template-columns: 1fr; }
+      .counter-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
     }
   `;
 
@@ -511,7 +712,7 @@ export function QmsDashboard() {
 						<div className="adm-logo qms-shell-logo">Q</div>
 					)}
 					<div>
-						<div className="adm-title qms-shell-title">QMS Admin</div>
+						<div className="adm-title qms-shell-title">QMS Dashboard</div>
 						<div className="adm-sub qms-shell-subtitle">Ministry of Infrastructure · Queue Management</div>
 					</div>
 				</div>
@@ -605,8 +806,30 @@ export function QmsDashboard() {
 							))}
 						</div>
 
+						{/* Counter Status Panel */}
+						<div className="adm-card" style={{ marginBottom: 14 }}>
+							<div className="adm-card-header">
+								<div>
+									<div className="adm-card-title">Service Counters</div>
+									<div className="adm-card-sub">Status of all active counters</div>
+								</div>
+							</div>
+							{counters.length === 0 ? (
+								<div className="adm-empty"><div className="adm-empty-icon">🏪</div>No counters found</div>
+							) : (
+								<div className="counter-grid-compact">
+									{counters.map((counter) => (
+										<div key={counter.name} className="counter-card-compact">
+											<div className="counter-name-compact">Counter {counter.counter_number}</div>
+											<span className={`qms-badge ${qmsStatusTone(counter.status)}`}>{counter.status}</span>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+
 						{/* Advanced analytics + BI stats */}
-						<div className="adm-three-col" style={{ marginTop: 14 }}>
+						<div className="adm-three-col" style={{ marginBottom: 12 }}>
 							<div className="adm-card">
 								<div className="adm-card-header">
 									<div>
@@ -772,12 +995,19 @@ export function QmsDashboard() {
 				{view === "report" && (
 					<>
 						<div className="adm-report-bar">
-							<span style={{ fontSize: 13, fontWeight: 600, color: "#8d99a6" }}>Date</span>
+							<span style={{ fontSize: 13, fontWeight: 600, color: "#8d99a6" }}>From</span>
 							<input
 								type="date"
 								className="adm-date-input"
-								value={reportDate}
-								onChange={e => setReportDate(e.target.value)}
+								value={reportDateFrom}
+								onChange={e => setReportDateFrom(e.target.value)}
+							/>
+							<span style={{ fontSize: 13, fontWeight: 600, color: "#8d99a6" }}>To</span>
+							<input
+								type="date"
+								className="adm-date-input"
+								value={reportDateTo}
+								onChange={e => setReportDateTo(e.target.value)}
 							/>
 							<button className="adm-btn primary" onClick={fetchReport} disabled={loading}>
 								{loading ? "Loading…" : "↻ Load"}
@@ -802,7 +1032,7 @@ export function QmsDashboard() {
 							{reportRows.length === 0 ? (
 								<div className="adm-empty">
 									<div className="adm-empty-icon"><Icon name="file" /></div>
-									<div>No tickets found for {reportDate}</div>
+									<div>No tickets found for {reportDateFrom} to {reportDateTo}</div>
 								</div>
 							) : (
 								<div style={{ overflowX: "auto" }}>
@@ -846,12 +1076,19 @@ export function QmsDashboard() {
 				{view === "feedback" && (
 					<>
 						<div className="adm-report-bar">
-							<span style={{ fontSize: 13, fontWeight: 600, color: "#8d99a6" }}>Date</span>
+							<span style={{ fontSize: 13, fontWeight: 600, color: "#8d99a6" }}>From</span>
 							<input
 								type="date"
 								className="adm-date-input"
-								value={reportDate}
-								onChange={e => setReportDate(e.target.value)}
+								value={reportDateFrom}
+								onChange={e => setReportDateFrom(e.target.value)}
+							/>
+							<span style={{ fontSize: 13, fontWeight: 600, color: "#8d99a6" }}>To</span>
+							<input
+								type="date"
+								className="adm-date-input"
+								value={reportDateTo}
+								onChange={e => setReportDateTo(e.target.value)}
 							/>
 							<button className="adm-btn primary" onClick={fetchReport} disabled={loading}>
 								{loading ? "Loading…" : "↻ Load"}
@@ -907,7 +1144,7 @@ export function QmsDashboard() {
 							{feedbackRows.length === 0 ? (
 								<div className="adm-empty">
 									<div className="adm-empty-icon"><Icon name="star" /></div>
-									<div>No feedback found for {reportDate}</div>
+									<div>No feedback found for {reportDateFrom} to {reportDateTo}</div>
 								</div>
 							) : (
 								<div style={{ overflowX: "auto" }}>

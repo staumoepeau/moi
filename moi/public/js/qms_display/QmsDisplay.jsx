@@ -8,6 +8,8 @@ export function QmsDisplay() {
   const [isStarted, setIsStarted] = React.useState(false);
   const [isRecall, setIsRecall] = React.useState(false); // flashes the recall badge
   const [queueCounts, setQueueCounts] = React.useState([]); // per-service waiting counts
+  const [counterStatus, setCounterStatus] = React.useState([]); // counter status (Open/Closed/Break)
+  const [isFullscreen, setIsFullscreen] = React.useState(false); // track fullscreen state
 
   // Ministry branding
   const { logo: ministryLogo } = useMinistryBranding();
@@ -15,6 +17,11 @@ export function QmsDisplay() {
   const Icon = ({ name, className = "", style = {} }) => (
     <i className={`octicon octicon-${name} ${className}`} style={{ marginRight: 6, ...style }} aria-hidden="true" />
   );
+
+  // ── Pre-fetch counter status on mount ──────────────────────────────────────
+  React.useEffect(() => {
+    fetchCounterStatus();
+  }, []);
 
   // ── Fetch live queue counts for the ticker bar ───────────────────────────
   const fetchQueueCounts = async () => {
@@ -35,6 +42,19 @@ export function QmsDisplay() {
       setQueueCounts(counts);
     } catch (e) {
       console.error("Queue count fetch failed:", e);
+    }
+  };
+
+  // ── Fetch counter status ──────────────────────────────────────────────────
+  const fetchCounterStatus = async () => {
+    try {
+      const counters = await frappe.db.get_list("QMS Counter", {
+        fields: ["name", "status"],
+        order_by: "name asc",
+      });
+      setCounterStatus(counters);
+    } catch (e) {
+      console.error("Counter status fetch failed:", e);
     }
   };
 
@@ -64,8 +84,15 @@ export function QmsDisplay() {
   React.useEffect(() => {
     if (!isStarted) return;
 
+    // Initial fetch
     fetchQueueCounts();
-    const interval = setInterval(fetchQueueCounts, 20000);
+    fetchCounterStatus();
+
+    // Periodic refresh every 15 seconds (more frequent for smoother updates)
+    const interval = setInterval(() => {
+      fetchQueueCounts();
+      fetchCounterStatus();
+    }, 15000);
 
     const handleTicketCalled = (data) => {
       const short = String(data.ticket_id).slice(-3);
@@ -83,8 +110,9 @@ export function QmsDisplay() {
         return { ticket: short, counter: data.counter_number, service: data.service || "" };
       });
 
-      // Refresh queue counts after a call
-      setTimeout(fetchQueueCounts, 1500);
+      // Immediately refresh queue counts and counter status when ticket is called
+      fetchQueueCounts();
+      fetchCounterStatus();
     };
 
     const handleTicketRecalled = (data) => {
@@ -94,14 +122,41 @@ export function QmsDisplay() {
 
       // Flash the recall state, then clear after 8s
       setTimeout(() => setIsRecall(false), 8000);
+
+      // Refresh queue counts and counter status on recall
+      fetchQueueCounts();
+      fetchCounterStatus();
     };
 
+    // Listen to real-time events
     frappe.realtime.on("ticket_called", handleTicketCalled);
     frappe.realtime.on("ticket_recalled", handleTicketRecalled);
+
+    // Also listen for general QMS updates
+    frappe.realtime.on("qms_update", () => {
+      fetchQueueCounts();
+      fetchCounterStatus();
+    });
+
+    // Listen for real-time counter status updates
+    const handleCounterStatusUpdate = (data) => {
+      console.log("Counter status updated:", data);
+      setCounterStatus((prev) => {
+        const updated = prev.map((c) =>
+          c.name === data.counter ? { ...c, status: data.status } : c
+        );
+        console.log("New counter status:", updated);
+        return updated;
+      });
+    };
+    frappe.realtime.on("counter_status_updated", handleCounterStatusUpdate);
+    console.log("Counter status listener registered");
 
     return () => {
       frappe.realtime.off("ticket_called", handleTicketCalled);
       frappe.realtime.off("ticket_recalled", handleTicketRecalled);
+      frappe.realtime.off("qms_update");
+      frappe.realtime.off("counter_status_updated", handleCounterStatusUpdate);
       clearInterval(interval);
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
@@ -284,6 +339,34 @@ export function QmsDisplay() {
     }
     .ds-btn-start:hover { background: #1a7fd4; transform: translateY(-2px); }
     .ds-btn-start:active { transform: scale(.98); }
+
+    /* ── Counter Status Panel ── */
+    .ds-counter-status {
+      flex: 0.9; background: #0f172a;
+      display: flex; flex-direction: column;
+      padding: 24px 20px; overflow: auto;
+      border-top: 1px solid #1e293b;
+    }
+    .ds-counter-status-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .15em; color: #475569; margin-bottom: 16px;
+    }
+    .ds-counter-grid {
+      display: grid; grid-template-columns: 1fr; gap: 8px;
+    }
+    .ds-counter-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; background: #1e293b; border-radius: 8px;
+      border: 1px solid #334155; font-size: 12px;
+    }
+    .ds-counter-num { font-weight: 700; color: #e2e8f0; }
+    .ds-status-badge {
+      padding: 2px 10px; border-radius: 12px; font-size: 10px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .ds-status-badge.open { background: #166534; color: #86efac; }
+    .ds-status-badge.closed { background: #7c2d12; color: #fdba74; }
+    .ds-status-badge.break { background: #1e3a8a; color: #60a5fa; }
   `;
 
   // ── Clock ────────────────────────────────────────────────────────────────
@@ -292,6 +375,40 @@ export function QmsDisplay() {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // ── Fullscreen handler ─────────────────────────────────────────────────────
+  const handleFullscreen = () => {
+    if (document.fullscreenElement) {
+      // Exit fullscreen
+      document.exitFullscreen().catch(err => {
+        console.error('Exit fullscreen failed:', err);
+      });
+    } else {
+      // Request fullscreen
+      const elem = document.documentElement;
+      if (elem.requestFullscreen) {
+        elem.requestFullscreen().catch(err => {
+          console.error('Fullscreen request failed:', err);
+          frappe.show_alert({ message: "Fullscreen not supported", indicator: "red" });
+        });
+      } else {
+        frappe.show_alert({ message: "Fullscreen not supported in this browser", indicator: "orange" });
+      }
+    }
+  };
+
+  // ── Listen for fullscreen changes ───────────────────────────────────────────
+  React.useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
   const fmt = (d) =>
     d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
@@ -331,7 +448,28 @@ export function QmsDisplay() {
             <div className="ds-subtitle qms-shell-subtitle">Ministry of Infrastructure · Public Display</div>
           </div>
         </div>
-        <div className="ds-clock">{fmt(time)}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="ds-clock">{fmt(time)}</div>
+          <button
+            onClick={handleFullscreen}
+            style={{
+              background: "none",
+              border: "1px solid #7dd3fc",
+              color: "#38bdf8",
+              padding: "6px 12px",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              transition: "background .15s",
+            }}
+            onMouseEnter={(e) => e.target.style.background = "#1e3a5f"}
+            onMouseLeave={(e) => e.target.style.background = "none"}
+            title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+          >
+            {isFullscreen ? "⛶ Exit" : "⛶ Fullscreen"}
+          </button>
+        </div>
       </div>
 
       {/* Ticker — live queue counts */}
@@ -380,25 +518,49 @@ export function QmsDisplay() {
           )}
         </div>
 
-        {/* History panel */}
-        <div className="ds-history">
-          <div className="ds-history-title">Previously Called</div>
-          <div className="ds-history-list">
-            {history.length === 0 ? (
-              <div style={{ color: "#334155", fontSize: 13, textAlign: "center", marginTop: 32 }}>
-                No previous tickets yet
-              </div>
-            ) : (
-              history.map((item, i) => (
-                <div className="ds-history-item" key={i}>
-                  <div>
-                    <div className="ds-h-ticket">{item.ticket}</div>
-                    {item.service && <div className="ds-h-service">{item.service}</div>}
-                  </div>
-                  <div className="ds-h-counter">C-{item.counter}</div>
+        {/* History & Counter Status panel */}
+        <div style={{ flex: "2.1", display: "flex", flexDirection: "column", background: "#0f172a", overflow: "hidden" }}>
+          {/* History */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "32px 28px", overflow: "auto", borderRight: "1px solid #1e293b" }}>
+            <div className="ds-history-title">Previously Called</div>
+            <div className="ds-history-list">
+              {history.length === 0 ? (
+                <div style={{ color: "#334155", fontSize: 13, textAlign: "center", marginTop: 32 }}>
+                  No previous tickets yet
                 </div>
-              ))
-            )}
+              ) : (
+                history.map((item, i) => (
+                  <div className="ds-history-item" key={i}>
+                    <div>
+                      <div className="ds-h-ticket">{item.ticket}</div>
+                      {item.service && <div className="ds-h-service">{item.service}</div>}
+                    </div>
+                    <div className="ds-h-counter">C-{item.counter}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Counter Status */}
+          <div className="ds-counter-status">
+            <div className="ds-counter-status-title">Counter Status</div>
+            <div className="ds-counter-grid">
+              {counterStatus.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#475569", textAlign: "center" }}>
+                  No counters configured
+                </div>
+              ) : (
+                counterStatus.map((counter) => (
+                  <div className="ds-counter-item" key={counter.name}>
+                    <span className="ds-counter-num">Counter {counter.name}</span>
+                    <span className={`ds-status-badge ${(counter.status || "Open").toLowerCase()}`}>
+                      {counter.status || "Open"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>

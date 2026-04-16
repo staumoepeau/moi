@@ -1,39 +1,33 @@
 import * as React from "react";
-import { QmsDisplay } from "./QmsDisplay";
+import { QmsServiceForm } from "./QmsServiceForm";
 import { createRoot } from "react-dom/client";
 
-
-class Qms_Display {
+class QmsServiceFormApp {
 	constructor({ page, wrapper }) {
 		this.$wrapper = $(wrapper);
 		this.page = page;
-
 		this.init();
 	}
 
 	init() {
-		this.hide_frappe_ui(); // Remove sidebar and navbar for full-screen display mode
-		this.setup_app();
-	}
-
-	hide_frappe_ui() {
-		// Hide sidebar, navbar, and header for full-screen display mode
+		// Hide frappe UI for full-screen form
 		this.page.sidebar?.hide();
 		$(".navbar").hide();
 		this.page.header?.hide();
 		$(".layout-main-section-wrapper").css({ padding: "0", margin: "0" });
 		$(".layout-main-section").css({ padding: "0", "max-width": "100%" });
 		$(".page-footer").hide();
+
+		this.setup_app();
 	}
 
 	setup_app() {
-		// create and mount the react app
 		const root = createRoot(this.$wrapper.get(0));
-		root.render(<QmsDisplay />);
-		this.$qms_display = root;
+		root.render(<QmsServiceForm />);
+		this.$app = root;
 	}
 }
 
 frappe.provide("frappe.ui");
-frappe.ui.Qms_Display = Qms_Display;
-export default Qms_Display;
+frappe.ui.QmsServiceFormApp = QmsServiceFormApp;
+export default QmsServiceFormApp;

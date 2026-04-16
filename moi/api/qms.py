@@ -6,13 +6,61 @@ import frappe
 from frappe.utils import now_datetime
 
 @frappe.whitelist(allow_guest=True)
+def preview_ticket(service_name):
+    """
+    Preview the NEXT ticket number without saving to database.
+    Used when user selects a service - shows them the ticket number.
+    The ticket is only saved when they actually print.
+    """
+    # Get the LAST ticket in the entire system (highest number)
+    last_ticket = frappe.get_all(
+        "QMS Ticket",
+        fields=["name"],
+        order_by="name desc",
+        limit=1
+    )
+
+    if last_ticket:
+        last_name = last_ticket[0].name
+        # Extract the number from the ticket name
+        # e.g., "QMS-TKEN-2024-260411030" -> "260411030"
+        try:
+            full_number_str = last_name.split("-")[-1]
+            last_number = int(full_number_str)
+            next_number = last_number + 1
+            # Format with same digit count as original
+            full_number = str(next_number).zfill(len(full_number_str))
+        except (ValueError, IndexError):
+            next_number = 1
+            full_number = "000000001"
+    else:
+        next_number = 1
+        full_number = "000000001"
+
+    # Get ONLY the last 3 digits with zero-padding
+    # e.g., "260411031" -> "031", "000000001" -> "001"
+    last_three = str(next_number)[-3:].zfill(3)
+
+    return {
+        "predicted_name": f"QMS-TKEN-2024-{full_number}",
+        "display_number": last_three  # e.g., "031" (ONLY last 3 digits with zero-padding)
+    }
+
+
+@frappe.whitelist(allow_guest=True)
 def create_ticket(service_name):
+    """
+    Create and save a ticket to the database.
+    This is called ONLY when the user actually prints the ticket.
+    If user closes without printing, this is never called.
+    """
     doc = frappe.get_doc({
         "doctype": "QMS Ticket",
         "service_requested": service_name, # This must match the name of the 'QMS Service' record
         "status": "Waiting"
     })
     doc.insert(ignore_permissions=True)
+    frappe.db.commit()  # Ensure it's committed to DB
     return doc.name
 
 
@@ -67,7 +115,47 @@ def complete_service(ticket_id, customer_name, customer_id):
     doc.status = "Completed"
     doc.completed_at = now_datetime()
     doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Notify display of status update
+    frappe.publish_realtime("qms_update", {
+        "ticket_id": ticket_id,
+        "status": "Completed"
+    })
     return "Success"
+
+
+@frappe.whitelist()
+def complete_with_recall(ticket_id, customer_name, customer_id, recall_reason):
+    """Completes the ticket and marks it for recall with a reason."""
+    doc = frappe.get_doc("QMS Ticket", ticket_id)
+    doc.customer_name = customer_name
+    doc.customer_id = customer_id
+    doc.officer = frappe.session.user
+    doc.status = "Completed"
+    doc.completed_at = now_datetime()
+    doc.marked_for_recall = 1
+    doc.recall_reason = recall_reason
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Notify display of status update
+    frappe.publish_realtime("qms_update", {
+        "ticket_id": ticket_id,
+        "status": "Completed"
+    })
+    return "ok"
+
+
+@frappe.whitelist()
+def close_recall(ticket_id):
+    """Closes a recall by clearing the marked_for_recall flag."""
+    doc = frappe.get_doc("QMS Ticket", ticket_id)
+    doc.marked_for_recall = 0
+    doc.recall_reason = ""
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return "ok"
 
 
 
@@ -114,9 +202,21 @@ def update_counter_status(counter_number, status, service, officer):
     """
     Updates QMS Counter status and logs session in QMS Counter Details
     """
-    # 1. We don't have a status field in QMS Counter based on your JSON, 
-    # but we can track the live status in the session logs.
-    
+    frappe.logger().info(f"[QMS API] update_counter_status called: counter={counter_number}, status={status}")
+
+    # Update the QMS Counter status field (this will trigger after_update hook for real-time sync)
+    try:
+        counter_doc = frappe.get_doc("QMS Counter", counter_number)
+        frappe.logger().info(f"[QMS API] Loaded counter: {counter_number}, old_status={counter_doc.status}")
+
+        counter_doc.status = status
+        counter_doc.save(ignore_permissions=True)
+
+        frappe.logger().info(f"[QMS API] Saved counter: {counter_number}, new_status={counter_doc.status}")
+    except Exception as e:
+        frappe.logger().error(f"[QMS API] Error updating counter: {str(e)}")
+        raise
+
     if status == "Open":
         # Create a new session record
         new_log = frappe.get_doc({
@@ -134,7 +234,7 @@ def update_counter_status(counter_number, status, service, officer):
     elif status in ["Closed", "Break"]:
         # Find the currently open session for this specific counter and officer
         # We look for the most recent record where closing_time is NOT set
-        active_session = frappe.get_all("QMS Counter Details", 
+        active_session = frappe.get_all("QMS Counter Details",
             filters={
                 "counter_number": counter_number,
                 "officer": officer,
@@ -157,7 +257,16 @@ def update_counter_status(counter_number, status, service, officer):
 
 @frappe.whitelist()
 def recall_ticket(ticket_id, counter_number, officer):
-    """Re-emits the ticket_called realtime event so the display screen announces again."""
+    """Re-emits the ticket_called realtime event and saves a recall history entry."""
+    doc = frappe.get_doc("QMS Ticket", ticket_id)
+    doc.append("recall_history", {
+        "recalled_at": now_datetime(),
+        "recalled_by": officer,
+        "recall_note": doc.recall_reason or "",
+    })
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
     frappe.publish_realtime(
         "ticket_recalled",
         {
@@ -177,6 +286,12 @@ def no_show(ticket_id, officer, counter_number):
     ticket.no_show_at = frappe.utils.now()
     ticket.save(ignore_permissions=True)
     frappe.db.commit()
+
+    # Notify display of status update
+    frappe.publish_realtime("qms_update", {
+        "ticket_id": ticket_id,
+        "status": "No Show"
+    })
     return "ok"
 
 
@@ -214,3 +329,21 @@ def submit_feedback(ticket_id, rating, comment=""):
     feedback.insert(ignore_permissions=True)
     frappe.db.commit()
     return "ok"
+
+@frappe.whitelist()
+def get_completed_tickets(counter_number, limit=5):
+    """Returns recent completed+marked-for-recall tickets for this officer at this counter."""
+    officer = frappe.session.user
+    counter_id = frappe.db.get_value("QMS Counter", {"counter_number": counter_number}, "name")
+    if not counter_id:
+        return []
+    tickets = frappe.get_all(
+        "QMS Ticket",
+        filters={"counter": counter_id, "officer": officer, "status": "Completed", "marked_for_recall": 1},
+        fields=["name", "customer_name", "customer_id", "service_requested", "completed_at", "recall_reason"],
+        order_by="completed_at desc",
+        limit=int(limit)
+    )
+    for t in tickets:
+        t["recall_count"] = frappe.db.count("QMS Ticket Recall", {"parent": t["name"]})
+    return tickets

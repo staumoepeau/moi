@@ -149,3 +149,34 @@ def employee_status():
 def attendance_status():
     add_custom_statuses_to_attendance()
 
+
+def setup_qms_cleanup():
+	"""Setup custom field for QMS cleanup tracking"""
+	try:
+		# Create custom field if it doesn't exist
+		existing_field = frappe.db.get_value(
+			"Custom Field",
+			filters={
+				"dt": "System Settings",
+				"fieldname": "qms_last_cleanup_date",
+			},
+		)
+
+		if not existing_field:
+			custom_field = frappe.get_doc({
+				"doctype": "Custom Field",
+				"dt": "System Settings",
+				"fieldname": "qms_last_cleanup_date",
+				"label": "QMS Last Cleanup Date",
+				"fieldtype": "Date",
+				"insert_after": "backup_limit",
+				"read_only": 1,
+				"hidden": 1,
+			})
+			custom_field.insert(ignore_permissions=True)
+			frappe.db.commit()
+			frappe.logger().info("[QMS Setup] Created custom field qms_last_cleanup_date")
+
+	except Exception as e:
+		frappe.logger().error(f"[QMS Setup] Error setting up cleanup field: {str(e)}")
+

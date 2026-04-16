@@ -179,23 +179,11 @@ doctype_list_js = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"hr.tasks.all"
-# 	],
-# 	"daily": [
-# 		"hr.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"hr.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"hr.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"hr.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"all": [
+		"moi.tasks.cleanup_uncalled_tickets"
+	],
+}
 
 # Testing
 # -------
@@ -277,7 +265,14 @@ override_doctype_class = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+#app_include_js = "assets/js/silent_print.min.js"
+# app_include_css = "assets/js/app.min.css"
+
+# Note: silent_print.js is for Point of Sale, not needed for QMS Terminal
+# page_js = {"qms_terminal" : "public/js/silent_print.js"}
+
 after_migrate = [
  #   "hr.install.leave_status",
     "moi.install.attendance_status",
+    "moi.install.setup_qms_cleanup",
 ]

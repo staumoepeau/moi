@@ -1,388 +1,590 @@
 import * as React from "react";
 import { getQmsPageStyles } from "../qms_shared/qmsTheme";
 import { useViewport } from "../qms_shared/useViewport";
-import { useEposPrinter } from "../qms_shared/useEposPrinter";
 import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
 import QRCode from "qrcode";
 
 // ── Views: "service" | "checklist" | "ticket" | "feedback" | "feedback_entry" | "thanks"
 export function QmsTerminal() {
-  const [view, setView] = React.useState("service");
-  const [services, setServices] = React.useState([]);
-  const [ticketData, setTicketData] = React.useState(null);
-  const [loading, setLoading] = React.useState(false);
+	const [view, setView] = React.useState("service");
+	const [services, setServices] = React.useState([]);
+	const [ticketData, setTicketData] = React.useState(null);
+	const [loading, setLoading] = React.useState(false);
+	const [installPrompt, setInstallPrompt] = React.useState(null);
+	const [isInstalled, setIsInstalled] = React.useState(false);
+	const [isOnline, setIsOnline] = React.useState(navigator.onLine);
 
-  const Icon = ({ name, className = "", style = {} }) => (
-    <i className={`octicon octicon-${name} ${className}`} style={{ marginRight: 6, ...style }} aria-hidden="true" />
-  );
+	const Icon = ({ name, className = "", style = {} }) => (
+		<i className={`octicon octicon-${name} ${className}`} style={{ marginRight: 6, ...style }} aria-hidden="true" />
+	);
 
-  // Checklist state
-  const [pendingService, setPendingService] = React.useState(null);
-  const [checklistItems, setChecklistItems] = React.useState([]);
-  const [checkedItems, setCheckedItems] = React.useState(new Set());
+	// Checklist state
+	const [pendingService, setPendingService] = React.useState(null);
+	const [checklistItems, setChecklistItems] = React.useState([]);
+	const [checkedItems, setCheckedItems] = React.useState(new Set());
 
-  // Feedback state
-  const [fbTicket, setFbTicket] = React.useState("");
-  const [fbRating, setFbRating] = React.useState(0);
-  const [fbHover, setFbHover] = React.useState(0);
-  const [fbComment, setFbComment] = React.useState("");
-  const [fbError, setFbError] = React.useState("");
-  const [fbSubmitting, setFbSubmitting] = React.useState(false);
-  const [fbTicketInfo, setFbTicketInfo] = React.useState(null); // resolved ticket doc
+	// Feedback state
+	const [fbTicket, setFbTicket] = React.useState("");
+	const [fbRating, setFbRating] = React.useState(0);
+	const [fbHover, setFbHover] = React.useState(0);
+	const [fbComment, setFbComment] = React.useState("");
+	const [fbError, setFbError] = React.useState("");
+	const [fbSubmitting, setFbSubmitting] = React.useState(false);
+	const [fbTicketInfo, setFbTicketInfo] = React.useState(null); // resolved ticket doc
 
-  // Printer state
-  const [printerConfig, setPrinterConfig] = React.useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("qms_printer_config") || "{}");
-    } catch {
-      return {};
-    }
-  });
-  const [showPrinterSettings, setShowPrinterSettings] = React.useState(false);
-  const epos = useEposPrinter(printerConfig);
+	// Ministry branding
+	const { logo: ministryLogo, name: ministryName } = useMinistryBranding();
 
-  // Ministry branding
-  const { logo: ministryLogo, name: ministryName } = useMinistryBranding();
+	// Auto-return to service view timer
+	const autoReturnRef = React.useRef(null);
+	const scheduleReturn = (ms = 10000) => {
+		if (autoReturnRef.current) clearTimeout(autoReturnRef.current);
+		autoReturnRef.current = setTimeout(() => setView("service"), ms);
+	};
 
-  // Auto-return to service view timer
-  const autoReturnRef = React.useRef(null);
-  const scheduleReturn = (ms = 10000) => {
-    if (autoReturnRef.current) clearTimeout(autoReturnRef.current);
-    autoReturnRef.current = setTimeout(() => setView("service"), ms);
-  };
+	React.useEffect(() => {
+		return () => {
+			if (autoReturnRef.current) clearTimeout(autoReturnRef.current);
+		};
+	}, []);
 
-  React.useEffect(() => {
-    return () => {
-      if (autoReturnRef.current) clearTimeout(autoReturnRef.current);
-    };
-  }, []);
+	// Load Font Awesome CSS early (before other styles)
+	React.useEffect(() => {
+		if (!document.querySelector('link[href*="font-awesome"]') && !document.querySelector('link[href*="fontawesome"]')) {
+			const link = document.createElement('link');
+			link.rel = 'stylesheet';
+			link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+			// Insert at beginning of head
+			if (document.head.firstChild) {
+				document.head.insertBefore(link, document.head.firstChild);
+			} else {
+				document.head.appendChild(link);
+			}
+		}
+	}, []);
 
-  React.useEffect(() => {
-    frappe.db.get_list("QMS Service", {
-      fields: ["name", "image", "background_color"],
-      filters: { is_active: 1 },
-      order_by: "name asc",
-    }).then(setServices).catch(console.error);
-  }, []);
+	// ── PWA Installation Setup ──────────────────────────────────────────────
+	React.useEffect(() => {
+		// Register service worker
+		if ('serviceWorker' in navigator) {
+			navigator.serviceWorker.register('/assets/moi/service-worker.js', {
+				scope: '/'
+			})
+				.then(registration => {
+					console.log('[PWA] Service Worker registered:', registration);
 
-  // ── Checklist helpers ────────────────────────────────────────────────────
-  const toggleItem = (itemName) => {
-    setCheckedItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(itemName)) next.delete(itemName);
-      else next.add(itemName);
-      return next;
-    });
-  };
+					// Check for updates periodically
+					const updateInterval = setInterval(() => {
+						registration.update();
+					}, 60000);
 
-  const resetChecklist = () => {
-    setPendingService(null);
-    setChecklistItems([]);
-    setCheckedItems(new Set());
-  };
+					return () => clearInterval(updateInterval);
+				})
+				.catch(error => {
+					console.error('[PWA] Service Worker registration failed:', error);
+				});
+		}
 
-  // ── Ticket generation ────────────────────────────────────────────────────
-  const createTicket = async (serviceName) => {
-    setLoading(true);
-    try {
-      const res = await frappe.call({
-        method: "moi.api.qms.create_ticket",
-        args: { service_name: serviceName },
-      });
-      if (res.message) {
-        const td = {
-          fullNumber: res.message,
-          displayNumber: res.message.slice(-3),
-          service: serviceName,
-          time: new Date().toLocaleString(),
-        };
-        setTicketData(td);
-        setView("ticket");
-        scheduleReturn(30000);
-      }
-    } catch (e) {
-      frappe.show_alert({ message: "Error generating ticket", indicator: "red" });
-    } finally {
-      setLoading(false);
-    }
-  };
+		// Listen for install prompt
+		const handleBeforeInstallPrompt = (e) => {
+			e.preventDefault();
+			setInstallPrompt(e);
+			console.log('[PWA] Install prompt ready');
+		};
 
-  const handleServiceSelect = async (serviceName) => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      const svcDoc = await frappe.db.get_doc("QMS Service", serviceName);
-      const items = svcDoc.checklist || [];
-      if (items.length > 0) {
-        setPendingService(serviceName);
-        setChecklistItems(items);
-        setCheckedItems(new Set());
-        setView("checklist");
-      } else {
-        await createTicket(serviceName);
-      }
-    } catch (e) {
-      frappe.show_alert({ message: "Error loading service", indicator: "red" });
-    } finally {
-      setLoading(false);
-    }
-  };
+		window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-  const handleChecklistConfirm = async () => {
-    const svc = pendingService;
-    resetChecklist();
-    await createTicket(svc);
-  };
+		// Check if app is already installed
+		if (window.navigator.standalone === true) {
+			setIsInstalled(true);
+			console.log('[PWA] App is installed (standalone mode)');
+		}
 
-  const buildTicketPrintHtml = async (data) => {
-    if (!data) return "";
+		// Listen for online/offline events
+		const handleOnline = () => {
+			setIsOnline(true);
+			frappe.show_alert({ message: 'Back online!', indicator: 'green' });
+		};
+		const handleOffline = () => {
+			setIsOnline(false);
+			frappe.show_alert({ message: 'You are offline', indicator: 'orange' });
+		};
 
-    // Generate QR code as data URL
-    let qrCodeDataUrl = "";
-    try {
-      qrCodeDataUrl = await QRCode.toDataURL(data.fullNumber, {
-        errorCorrectionLevel: "M",
-        type: "image/png",
-        width: 120,
-        margin: 1,
-      });
-    } catch (e) {
-      console.warn("[buildTicketPrintHtml] QR code generation failed:", e);
-    }
+		window.addEventListener('online', handleOnline);
+		window.addEventListener('offline', handleOffline);
 
-    return `<!doctype html>
+		return () => {
+			window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+			window.removeEventListener('online', handleOnline);
+			window.removeEventListener('offline', handleOffline);
+		};
+	}, []);
+
+	// ── Install PWA Handler ──────────────────────────────────────────────────
+	const handleInstallApp = async () => {
+		if (!installPrompt) {
+			frappe.show_alert({ message: 'App already installed or not available', indicator: 'blue' });
+			return;
+		}
+
+		installPrompt.prompt();
+		const { outcome } = await installPrompt.userChoice;
+
+		if (outcome === 'accepted') {
+			setInstallPrompt(null);
+			setIsInstalled(true);
+			frappe.show_alert({ message: 'App installed! You can use it offline now.', indicator: 'green' });
+		}
+	};
+
+
+
+	React.useEffect(() => {
+		frappe.db.get_list("QMS Service", {
+			fields: ["name", "image", "background_color"],
+			filters: { is_active: 1 },
+			order_by: "name asc",
+		}).then(setServices).catch(console.error);
+	}, []);
+
+	// Handle QR code scan - when ticket is scanned, navigate to feedback
+	React.useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const ticketParam = params.get("ticket");
+		const viewParam = params.get("view");
+
+		if (ticketParam && viewParam === "feedback") {
+			// QR was scanned, auto-populate feedback with ticket number
+			setFbTicket(ticketParam);
+			setView("feedback");
+			// Clean up URL to avoid duplicate navigation
+			window.history.replaceState({}, document.title, window.location.pathname);
+		}
+	}, []);
+
+	// ── Checklist helpers ────────────────────────────────────────────────────
+	const toggleItem = (itemName) => {
+		setCheckedItems((prev) => {
+			const next = new Set(prev);
+			if (next.has(itemName)) next.delete(itemName);
+			else next.add(itemName);
+			return next;
+		});
+	};
+
+	const resetChecklist = () => {
+		setPendingService(null);
+		setChecklistItems([]);
+		setCheckedItems(new Set());
+	};
+
+	// ── Ticket generation ────────────────────────────────────────────────────
+	// Preview ticket (generate number WITHOUT saving to DB)
+	const previewTicket = async (serviceName) => {
+		setLoading(true);
+		try {
+			const res = await frappe.call({
+				method: "moi.api.qms.preview_ticket",
+				args: { service_name: serviceName },
+			});
+			if (res.message) {
+				const td = {
+					fullNumber: res.message.predicted_name,
+					displayNumber: res.message.display_number,
+					service: serviceName,
+					time: new Date().toLocaleString(),
+					isPending: true, // Mark as preview (not yet saved to DB)
+				};
+				setTicketData(td);
+				setView("ticket");
+				scheduleReturn(30000);
+			}
+		} catch (e) {
+			frappe.show_alert({ message: "Error previewing ticket", indicator: "red" });
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	// Save ticket to database (ONLY called on print)
+	const saveTicketToDB = async (serviceName) => {
+		try {
+			const res = await frappe.call({
+				method: "moi.api.qms.create_ticket",
+				args: { service_name: serviceName },
+			});
+			return res.message; // Return the saved ticket name
+		} catch (e) {
+			console.error("[saveTicketToDB] Error:", e);
+			throw e;
+		}
+	};
+
+	const handleServiceSelect = async (serviceName) => {
+		if (loading) return;
+		setLoading(true);
+		try {
+			const svcDoc = await frappe.db.get_doc("QMS Service", serviceName);
+			const items = svcDoc.checklist || [];
+			if (items.length > 0) {
+				setPendingService(serviceName);
+				setChecklistItems(items);
+				setCheckedItems(new Set());
+				setView("checklist");
+			} else {
+				// Preview the ticket (don't save yet)
+				await previewTicket(serviceName);
+			}
+		} catch (e) {
+			frappe.show_alert({ message: "Error loading service", indicator: "red" });
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const handleChecklistConfirm = async () => {
+		const svc = pendingService;
+		resetChecklist();
+		// Preview the ticket (don't save yet)
+		await previewTicket(svc);
+	};
+
+	const buildTicketPrintHtml = async (data) => {
+		if (!data) return "";
+
+		// Generate QR code with feedback URL - when scanned, takes user to feedback page
+		let qrCodeDataUrl = "";
+		try {
+			const baseUrl = window.location.origin;
+			const feedbackUrl = `${baseUrl}${window.location.pathname}?ticket=${data.fullNumber}&view=feedback`;
+			qrCodeDataUrl = await QRCode.toDataURL(feedbackUrl, {
+				errorCorrectionLevel: "M",
+				type: "image/png",
+				width: 120,
+				margin: 1,
+			});
+		} catch (e) {
+			console.warn("[buildTicketPrintHtml] QR code generation failed:", e);
+		}
+
+		return `<!doctype html>
       <html>
       <head>
         <title>QMS Ticket ${data.displayNumber}</title>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
         <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
           @page { size: 80mm 200mm; margin: 0; }
-          html, body { width: 80mm; height: auto; margin: 0; padding: 0; }
-          body { padding: 4mm; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; width: 80mm; box-sizing: border-box; }
-          .ticket { width: 100%; margin: 0 auto; text-align: center; padding: 4mm; box-sizing: border-box; }
-          .header-logo { width: 100%; margin-bottom: 6px; max-width: 60px; margin-left: auto; margin-right: auto; }
-          .ministry-name { font-size: 10pt; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.05em; }
-          .paper-info { font-size: 6pt; color: #999; margin-bottom: 4mm; border-bottom: 1px dotted #ccc; padding-bottom: 2mm; }
-          .logo { font-size: 13px; font-weight: 900; letter-spacing: 0.08em; margin-bottom: 6px; }
-          .title { font-size: 18pt; font-weight: 800; margin: 4px 0 10px; }
-          .service { font-size: 11pt; margin-bottom: 10px; color: #444; }
-          .num { font-size: 48pt; font-weight: 900; margin: 4px 0; }
-          .sub { font-size: 9pt; margin: 4px 0; color: #222; }
-          .barcode { margin: 12px 0; }
-          .barcode-blob { width: 100%; height: 42px; display: flex; justify-content: center; align-items: center; gap: 1px; }
-          .barcode-line { background: #000; height: 100%; }
-          .narrow { width: 2px; }
-          .wide { width: 4px; }
-          .qr-code { margin: 12px auto; }
-          .qr-code img { width: 100px; height: 100px; image-rendering: pixelated; }
-          .footer { font-size: 8pt; border-top: 1px dashed #333; padding-top: 6px; margin-top: 12px; color: #333; }
+          html, body { width: 100%; height: 100vh; font-family: 'Arial', sans-serif; background: #f5f5f5; }
+          body { display: flex; align-items: center; justify-content: center; padding: 10px; }
+          .ticket {
+            width: 100%;
+            max-width: 80mm;
+            aspect-ratio: 80/200;
+            text-align: center;
+            padding: clamp(4mm, 5vw, 8mm);
+            box-sizing: border-box;
+            background: #fff;
+            color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }
+          .logo-area { margin: clamp(2mm, 3vw, 4mm) 0; }
+          .logo-area img {
+            width: clamp(30px, 8vw, 60px);
+            height: auto;
+            margin-bottom: clamp(2px, 2vw, 4px);
+          }
+          .ministry-name {
+            font-size: clamp(8pt, 2.5vw, 12pt);
+            font-weight: bold;
+            letter-spacing: 0.05em;
+            margin: clamp(1mm, 1.5vw, 3mm) 0;
+            line-height: 1.2;
+          }
+          .service-name {
+            font-size: clamp(10pt, 2vw, 12pt);
+            margin: clamp(2mm, 2vw, 4mm) 0;
+            font-weight: 500;
+            line-height: 1.2;
+          }
+          .timestamp {
+            font-size: clamp(8pt, 1.8vw, 10pt);
+            color: #555;
+            margin-bottom: clamp(3mm, 2vw, 6mm);
+            border-bottom: 1px solid #ddd;
+            padding-bottom: clamp(2mm, 1.5vw, 3mm);
+          }
+          .ticket-heading {
+            font-size: clamp(24pt, 10vw, 40pt);
+            font-weight: bold;
+            letter-spacing: -1px;
+            margin: clamp(3mm, 3vw, 6mm) 0 clamp(1mm, 1.5vw, 3mm) 0;
+            line-height: 1;
+            word-break: break-word;
+          }
+          .ticket-number {
+            font-size: clamp(10pt, 2vw, 13pt);
+            margin-bottom: clamp(3mm, 2vw, 6mm);
+            color: #333;
+            letter-spacing: 1px;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+          }
+          .barcode-container { margin: clamp(6mm, 3vw, 10mm) 0; text-align: center; }
+          .barcode-image {
+            width: clamp(80px, 20vw, 120px);
+            height: clamp(50px, 12vw, 80px);
+            margin: 0 auto clamp(2px, 1vw, 4px);
+            object-fit: contain;
+          }
+          .barcode-text {
+            font-size: clamp(8pt, 1.5vw, 10pt);
+            letter-spacing: 1px;
+            font-weight: bold;
+            margin-bottom: clamp(4mm, 2vw, 8mm);
+          }
+          .divider { border-top: 1px dashed #999; margin: clamp(2mm, 2vw, 4mm) 0; }
+          .footer {
+            font-size: clamp(7pt, 1.5vw, 9pt);
+            line-height: 1.4;
+            color: #444;
+            margin-top: clamp(2mm, 1.5vw, 4mm);
+          }
           @media print {
-            html, body { width: 80mm; height: auto; margin: 0; padding: 0; }
-            .ticket { border: none; padding: 4mm; }
+            body { background: #fff; padding: 0; }
+            .ticket {
+              box-shadow: none;
+              border-radius: 0;
+              aspect-ratio: unset;
+              width: 80mm;
+              max-width: unset;
+              padding: 6mm;
+            }
           }
         </style>
       </head>
       <body>
         <div class="ticket">
-          ${ministryLogo ? `<img src="${ministryLogo}" class="header-logo" alt="Ministry Logo" />` : ""}
-          <div class="ministry-name">${ministryName}</div>
-          <div class="paper-info">POS Printer | 80mm</div>
-          <div class="logo">QMS</div>
-          <div class="title">Ticket #${data.displayNumber}</div>
-          <div class="service">${data.service}</div>
-          <div class="sub">${data.time}</div>
-          <div class="num">${data.fullNumber}</div>
-          <div class="barcode">
-            <div class="barcode-blob">
-              ${data.fullNumber.split("").map((char) => {
-                const cls = char.charCodeAt(0) % 2 === 0 ? "wide" : "narrow";
-                return `<div class="barcode-line ${cls}"></div>`;
-              }).join("")}
-            </div>
-            <div style="font-size: 9pt; margin-top: 5px;">${data.fullNumber}</div>
+          <div class="logo-area">
+            ${ministryLogo ? `<img src="${ministryLogo}" alt="Ministry Logo" />` : '<div style="font-size: 20pt; margin-bottom: 6px;">🏛️</div>'}
           </div>
-          ${qrCodeDataUrl ? `<div class="qr-code"><img src="${qrCodeDataUrl}" alt="QR Code" /></div>` : ""}
+          <div class="ministry-name">MINISTRY OF INFRASTRUCTURE</div>
+
+          <div class="service-name">${data.service}</div>
+          <div class="timestamp">${data.time}</div>
+
+          <div class="ticket-heading">Ticket #${data.displayNumber}</div>
+          <div class="ticket-number">${data.fullNumber}</div>
+
+          <div class="barcode-container">
+            ${qrCodeDataUrl ? `<div class="barcode-image"><img src="${qrCodeDataUrl}" alt="QR Code" style="width: 100%; height: 100%; image-rendering: pixelated;" /></div>` : ""}
+          </div>
+
+          <div class="divider"></div>
           <div class="footer">
-            Present this ticket at the counter when called.<br />Thank you for your patience.
+            Present this ticket at the counter<br />when called.<br /><br />Thank you for your patience.
           </div>
         </div>
       </body>
       </html>`;
-  };
+	};
 
-  const printTicket = async () => {
-    if (!ticketData) return;
+	// ── Detect if running as mobile app ──────────────────────────────────────
+	const isMobileApp = () => {
+		return /Android|iPhone|iPad|iPod/.test(navigator.userAgent) ||
+			window.navigator.standalone === true;
+	};
 
-    // Fallback: Browser popup print
-    const printViaBrowser = async () => {
-      const printWindow = window.open("", "_blank", "width=600,height=680");
-      if (!printWindow) {
-        frappe.show_alert({ message: "Unable to open print window. Please allow popups.", indicator: "red" });
-        return;
-      }
+	// ── Mobile Printing (Direct to printer) ───────────────────────────────────
+	const printTicketMobile = async (html) => {
+		try {
+			const printWindow = window.open("", "_blank");
+			printWindow.document.write(html);
+			printWindow.document.close();
 
-      const htmlContent = await buildTicketPrintHtml(ticketData);
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      printWindow.focus();
+			// For iOS (AirPrint)
+			if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+				console.log('[Mobile Print] iOS - using AirPrint');
+				setTimeout(() => {
+					printWindow.print();
+					setTimeout(() => {
+						printWindow.close();
+					}, 1000);
+				}, 200);
+				return;
+			}
 
-      // Wait for content to load then trigger print
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-        }, 100);
-      };
+			// For Android
+			if (/Android/.test(navigator.userAgent)) {
+				console.log('[Mobile Print] Android - using Print Framework');
+				setTimeout(() => {
+					printWindow.print();
+					setTimeout(() => {
+						printWindow.close();
+					}, 1000);
+				}, 200);
+				return;
+			}
 
-      // Timeout fallback
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
+			// Fallback to regular print
+			console.log('[Mobile Print] Fallback to regular print');
+			printWindow.print();
+		} catch (error) {
+			console.error('[Mobile Print] Error:', error);
+			frappe.show_alert({ message: 'Print failed: ' + error.message, indicator: 'red' });
+		}
+	};
 
-      // Close window after print dialog closes
-      printWindow.onafterprint = () => {
-        printWindow.close();
-      };
+	const printTicket = async () => {
+		if (!ticketData) return;
 
-      scheduleReturn(20000);
-    };
+		try {
+			setLoading(true);
 
-    // Strategy 1: Try EPSON ePOS SDK (if configured and SDK loaded)
-    if (printerConfig.ip && epos.sdkReady) {
-      try {
-        await epos.printTicket(ticketData);
-        frappe.show_alert({ message: "Ticket printed (EPSON)", indicator: "green" });
-        scheduleReturn(5000);
-        return;
-      } catch (err) {
-        console.warn("[QmsTerminal] EPSON print failed, trying next strategy:", err.message);
-        // Fall through to next strategy
-      }
-    }
+			// STEP 1: Save ticket to DB if pending
+			if (ticketData.isPending) {
+				const savedTicketName = await saveTicketToDB(ticketData.service);
+				ticketData.fullNumber = savedTicketName;
+				const lastNumber = savedTicketName.split("-").pop();
+				ticketData.displayNumber = lastNumber.slice(-3).padStart(3, '0');
+				ticketData.isPending = false;
+			}
 
-    // Strategy 2: Try local HTTP service at localhost:9100
-    try {
-      const response = await fetch("http://localhost:9100/print", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ticket_number: ticketData.fullNumber,
-          display_number: ticketData.displayNumber,
-          service: ticketData.service,
-          time: ticketData.time,
-          paper_width: "80mm"
-        })
-      });
+			setLoading(false);
 
-      if (response.ok) {
-        frappe.show_alert({ message: "Ticket printed (local service)", indicator: "green" });
-        scheduleReturn(5000);
-        return;
-      }
-    } catch (e) {
-      console.log("[QmsTerminal] Local print service not available");
-    }
+			// STEP 2: Generate ticket HTML
+			const ticketHtml = await buildTicketPrintHtml(ticketData);
 
-    // Strategy 3: Browser popup fallback
-    console.log("[QmsTerminal] Falling back to browser print");
-    printViaBrowser();
-  };
+			// STEP 3: Print - use mobile-optimized approach if on mobile
+			if (isMobileApp()) {
+				console.log('[Print] Using mobile printing');
+				await printTicketMobile(ticketHtml);
+			} else {
+				console.log('[Print] Using web printing');
+				const printWindow = window.open("", "_blank");
+				printWindow.document.write(ticketHtml);
+				printWindow.document.close();
 
-  // ── Feedback: look up ticket ─────────────────────────────────────────────
-  const handleFeedbackLookup = async () => {
-    setFbError("");
-    if (!fbTicket.trim()) return setFbError("Please enter your ticket number.");
-    setLoading(true);
-    try {
-      // Accept last-3-digits shorthand or full ticket name
-      const filters = fbTicket.trim().length <= 3
-        ? [["name", "like", `%${fbTicket.trim()}`]]
-        : [["name", "=", fbTicket.trim()]];
+				// Auto-trigger print
+				printWindow.onload = function () {
+					printWindow.print();
+					setTimeout(() => {
+						printWindow.close();
+					}, 500);
+				};
+			}
 
-      const res = await frappe.db.get_list("QMS Ticket", {
-        filters: [...filters, ["status", "=", "Completed"]],
-        fields: ["name", "service_requested", "status", "completed_at"],
-        limit: 1,
-      });
+			// Return to service view after print
+			scheduleReturn(3000);
 
-      if (!res || res.length === 0) {
-        setFbError("Ticket not found or not yet completed. Please check your number.");
-        setLoading(false);
-        return;
-      }
+		} catch (err) {
+			console.error("[printTicket] Error:", err);
+			setLoading(false);
+			frappe.show_alert({ message: "Error: " + err.message, indicator: "red" });
+		}
+	};
 
-      // Check if already rated
-      const existing = await frappe.db.get_list("QMS Feedback", {
-        filters: [["ticket", "=", res[0].name]],
-        limit: 1,
-      });
-      if (existing && existing.length > 0) {
-        setFbError("This ticket has already been rated. Thank you!");
-        setLoading(false);
-        return;
-      }
+	// ── Feedback: look up ticket ─────────────────────────────────────────────
+	const handleFeedbackLookup = async () => {
+		setFbError("");
+		if (!fbTicket.trim()) return setFbError("Please enter your ticket number.");
+		setLoading(true);
+		try {
+			// Accept last-3-digits shorthand or full ticket name
+			const filters = fbTicket.trim().length <= 3
+				? [["name", "like", `%${fbTicket.trim()}`]]
+				: [["name", "=", fbTicket.trim()]];
 
-      setFbTicketInfo(res[0]);
-      setFbRating(0);
-      setFbComment("");
-      setView("feedback_entry");
-    } catch (e) {
-      setFbError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+			const res = await frappe.db.get_list("QMS Ticket", {
+				filters: [...filters, ["status", "=", "Completed"]],
+				fields: ["name", "service_requested", "status", "completed_at"],
+				limit: 1,
+			});
 
-  // ── Feedback: submit ─────────────────────────────────────────────────────
-  const handleFeedbackSubmit = async () => {
-    if (fbRating === 0) return setFbError("Please select a rating.");
-    setFbError("");
-    setFbSubmitting(true);
-    try {
-      await frappe.call({
-        method: "moi.api.qms.submit_feedback",
-        args: {
-          ticket_id: fbTicketInfo.name,
-          rating: fbRating,
-          comment: fbComment,
-        },
-      });
-      setView("thanks");
-      scheduleReturn(8000);
-    } catch (e) {
-      setFbError("Failed to submit feedback. Please try again.");
-    } finally {
-      setFbSubmitting(false);
-    }
-  };
+			if (!res || res.length === 0) {
+				setFbError("Ticket not found or not yet completed. Please check your number.");
+				setLoading(false);
+				return;
+			}
 
-  const resetFeedback = () => {
-    setFbTicket(""); setFbRating(0); setFbHover(0);
-    setFbComment(""); setFbError(""); setFbTicketInfo(null);
-  };
+			// Check if already rated
+			const existing = await frappe.db.get_list("QMS Feedback", {
+				filters: [["ticket", "=", res[0].name]],
+				limit: 1,
+			});
+			if (existing && existing.length > 0) {
+				setFbError("This ticket has already been rated. Thank you!");
+				setLoading(false);
+				return;
+			}
 
-  // ── Grid sizing (responsive) ──────────────────────────────────────────────
-  const vp = useViewport();
-  const cols = (() => {
-    if (vp.width < 600) return 1;
-    if (vp.width < 1024) return services.length > 4 ? 3 : 2;
-    return services.length > 4 ? 3 : 2;
-  })();
-  const cardH =
-    vp.width < 600 ? "160px" :
-    vp.width < 768 ? "180px" :
-    vp.width < 1366 ? "220px" :
-    "260px";
-  const labelFs =
-    vp.width < 600 ? "1.4rem" :
-    vp.width < 768 ? "1.8rem" :
-    vp.width < 1366 ? "2rem" :
-    "2.6rem";
+			setFbTicketInfo(res[0]);
+			setFbRating(0);
+			setFbComment("");
+			setView("feedback_entry");
+		} catch (e) {
+			setFbError("Something went wrong. Please try again.");
+		} finally {
+			setLoading(false);
+		}
+	};
 
-  const ratingLabels = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"];
-  const ratingColors = ["", "#ef4444", "#f97316", "#eab308", "#22c55e", "#15803d"];
+	// ── Feedback: submit ─────────────────────────────────────────────────────
+	const handleFeedbackSubmit = async () => {
+		if (fbRating === 0) return setFbError("Please select a rating.");
+		setFbError("");
+		setFbSubmitting(true);
+		try {
+			await frappe.call({
+				method: "moi.api.qms.submit_feedback",
+				args: {
+					ticket_id: fbTicketInfo.name,
+					rating: fbRating,
+					comment: fbComment,
+				},
+			});
+			setView("thanks");
+			scheduleReturn(8000);
+		} catch (e) {
+			setFbError("Failed to submit feedback. Please try again.");
+		} finally {
+			setFbSubmitting(false);
+		}
+	};
 
-  // ── Styles ────────────────────────────────────────────────────────────────
-  const styles = `
+	const resetFeedback = () => {
+		setFbTicket(""); setFbRating(0); setFbHover(0);
+		setFbComment(""); setFbError(""); setFbTicketInfo(null);
+	};
+
+	// ── Grid sizing (responsive) ──────────────────────────────────────────────
+	const vp = useViewport();
+	const cols = (() => {
+		if (vp.width < 600) return 1;
+		if (vp.width < 1024) return services.length > 4 ? 3 : 2;
+		return services.length > 4 ? 3 : 2;
+	})();
+	const cardH =
+		vp.width < 600 ? "160px" :
+			vp.width < 768 ? "180px" :
+				vp.width < 1366 ? "220px" :
+					"260px";
+	const labelFs =
+		vp.width < 600 ? "1.4rem" :
+			vp.width < 768 ? "1.8rem" :
+				vp.width < 1366 ? "2rem" :
+					"2.6rem";
+
+	const ratingLabels = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"];
+	const ratingColors = ["", "#ef4444", "#f97316", "#eab308", "#22c55e", "#15803d"];
+
+	// ── Styles ────────────────────────────────────────────────────────────────
+	const styles = `
     ${getQmsPageStyles("kt-root", { accent: "#1f7aec", surfaceTint: "#f8fafc" })}
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700;800&display=swap');
 
@@ -510,6 +712,11 @@ export function QmsTerminal() {
       position: absolute; right: -5%; bottom: -5%;
       width: 55%; opacity: .09; pointer-events: none; z-index: 1;
       filter: grayscale(100%) brightness(0);
+    }
+    .kt-service-card .watermark-icon {
+      position: absolute; right: -10%; bottom: -10%;
+      font-size: 200px; opacity: .08; pointer-events: none; z-index: 1;
+      color: #000;
     }
     .kt-service-label {
       position: relative; z-index: 2;
@@ -750,78 +957,6 @@ export function QmsTerminal() {
       .kt-service-label { font-size: 1.4rem !important; }
     }
 
-    /* ── Printer settings drawer ── */
-    .kt-printer-panel-overlay {
-      position: fixed; inset: 0; z-index: 199;
-      background: rgba(0,0,0,0.3);
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.2s;
-    }
-    .kt-printer-panel-overlay.open { opacity: 1; pointer-events: all; }
-
-    .kt-printer-panel {
-      position: fixed; top: 0; right: 0; bottom: 0;
-      width: min(380px, 100vw);
-      background: var(--qms-surface);
-      border-left: 1px solid var(--qms-border);
-      box-shadow: -8px 0 32px rgba(0,0,0,0.12);
-      z-index: 200;
-      display: flex; flex-direction: column;
-      transform: translateX(100%);
-      transition: transform 0.28s ease;
-      padding: 24px;
-      gap: 16px;
-      overflow-y: auto;
-    }
-    .kt-printer-panel.open { transform: translateX(0); }
-
-    .kt-printer-panel-title { font-size: 18px; font-weight: 700; color: var(--qms-text); }
-    .kt-printer-panel-close {
-      align-self: flex-end;
-      background: none; border: none; cursor: pointer;
-      font-size: 20px; color: var(--qms-text-muted);
-      padding: 0; width: 28px; height: 28px;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .kt-printer-panel-close:hover { color: var(--qms-text); }
-
-    .kt-printer-input-group { display: flex; flex-direction: column; gap: 6px; }
-    .kt-printer-label { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--qms-text-muted); }
-    .kt-printer-input {
-      height: 40px; padding: 0 12px;
-      border: 1px solid var(--qms-border-strong); border-radius: 8px;
-      background: var(--qms-surface); font-size: 14px;
-      color: var(--qms-text); font-family: inherit;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    .kt-printer-input:focus { border-color: var(--qms-accent); box-shadow: 0 0 0 3px rgba(31,122,236,.15); }
-
-    .kt-printer-status { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 8px; background: var(--qms-surface-alt); }
-    .kt-printer-status-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .kt-printer-status.ready .kt-printer-status-dot { background: #22c55e; }
-    .kt-printer-status.error .kt-printer-status-dot { background: #ef4444; }
-    .kt-printer-status.connecting .kt-printer-status-dot { background: #f59e0b; }
-    .kt-printer-status.idle .kt-printer-status-dot { background: #9ca3af; }
-    .kt-printer-status-text { font-size: 13px; font-weight: 600; color: var(--qms-text); flex: 1; text-transform: capitalize; }
-    .kt-printer-status-error { font-size: 12px; color: #ef4444; margin-top: 4px; }
-
-    .kt-printer-btn {
-      height: 40px; padding: 0 16px;
-      border: 1px solid var(--qms-border-strong);
-      border-radius: 8px;
-      background: var(--qms-accent); color: #fff;
-      font-size: 13px; font-weight: 600;
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
-      transition: background 0.15s;
-    }
-    .kt-printer-btn:hover { background: #1a7fd4; }
-
-    @media (max-width: 768px) {
-      .kt-printer-panel { width: 100vw; border-left: none; border-top: 1px solid var(--qms-border); top: auto; height: 80vh; transform: translateY(100%); }
-      .kt-printer-panel.open { transform: translateY(0); }
-    }
-
     /* ── Print ── */
     @media print {
       body * { display: none !important; }
@@ -840,401 +975,489 @@ export function QmsTerminal() {
       .pt-footer { font-size: 8pt; border-top: 1px dashed #333; padding-top: 6px; margin-top: 12px; color: #333; }
     }
     #kt-print { display: none; }
+
+    /* ── PWA Animations ── */
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ── Status Indicator ── */
+    .status-online {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-offline {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #fce4ec;
+      color: #c2185b;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .status-dot.online {
+      background: #4caf50;
+    }
+
+    .status-dot.offline {
+      background: #e91e63;
+      animation: blink 1s infinite;
+    }
   `;
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <div className="kt-root">
-      <style>{styles}</style>
+	// ── Render ────────────────────────────────────────────────────────────────
+	return (
+		<div className="kt-root">
+			<style>{styles}</style>
 
-      {/* Print template */}
-      {ticketData && (
-        <div id="kt-print" className="pt-body">
-          <div className="pt-logo">MOI QMS</div>
-          <div className="pt-title">Ticket #{ticketData.displayNumber}</div>
-          <div className="pt-service">{ticketData.service}</div>
-          <div className="pt-sub">{ticketData.time}</div>
+			{/* Print template */}
+			{ticketData && (
+				<div id="kt-print" className="pt-body">
+					<div className="pt-logo">MOI QMS</div>
+					<div className="pt-title">Ticket #{ticketData.displayNumber}</div>
+					<div className="pt-service">{ticketData.service}</div>
+					<div className="pt-sub">{ticketData.time}</div>
 
-          <div className="pt-barcode">
-            <div className="pt-barcode-blob">
-              {ticketData.fullNumber.split("").map((char, idx) => (
-                <div
-                  key={idx}
-                  className={`pt-barcode-line ${char.charCodeAt(0) % 2 === 0 ? "wide" : "narrow"}`}
-                />
-              ))}
-            </div>
-            <div style={{ fontSize: "8pt", marginTop: 4 }}>{ticketData.fullNumber}</div>
-          </div>
+					<div className="pt-barcode">
+						<div className="pt-barcode-blob">
+							{ticketData.fullNumber.split("").map((char, idx) => (
+								<div
+									key={idx}
+									className={`pt-barcode-line ${char.charCodeAt(0) % 2 === 0 ? "wide" : "narrow"}`}
+								/>
+							))}
+						</div>
+						<div style={{ fontSize: "8pt", marginTop: 4 }}>{ticketData.fullNumber}</div>
+					</div>
 
-          <div className="pt-footer">
-            <p>Present this ticket at the service counter when called.</p>
-            <p>Thank you for your patience.</p>
-          </div>
-        </div>
-      )}
+					<div className="pt-footer">
+						<p>Present this ticket at the service counter when called.</p>
+						<p>Thank you for your patience.</p>
+					</div>
+				</div>
+			)}
 
-      {/* ── Header ── */}
-      <div className="kt-header qms-shell-header">
-        <div className="kt-header-left qms-shell-brand">
-          <div className="kt-logo qms-shell-logo"><Icon name="device-desktop" style={{ marginRight: 0 }} /></div>
-          <div>
-            <div className="kt-title qms-shell-title"><Icon name="dashboard" /> Queue Management System</div>
-            <div className="kt-subtitle qms-shell-subtitle">Ministry of Infrastructure · Self-Service Kiosk</div>
-          </div>
-        </div>
-        <div className="kt-header-right qms-shell-actions">
-          {view === "service" && (
-            <button className="kt-btn qms-button btn btn-sm btn-light" onClick={() => setShowPrinterSettings(!showPrinterSettings)} title="Printer Settings">
-              <Icon name="tools" style={{ marginRight: 6 }} />
-              Printer
-              {epos.status === "ready" && <span style={{ color: "#22c55e", marginLeft: 4, fontSize: 10, fontWeight: 700 }}>●</span>}
-              {epos.status === "error" && <span style={{ color: "#ef4444", marginLeft: 4, fontSize: 10, fontWeight: 700 }}>●</span>}
-            </button>
-          )}
-          {view !== "service" && (
-            <button className="kt-btn qms-button btn btn-sm btn-light" onClick={() => {
-              setTicketData(null);
-              resetFeedback();
-              resetChecklist();
-              setView("service");
-            }}>
-              <Icon name="arrow-left" /> Back
-            </button>
-          )}
-          {view === "service" && (
-            <button className="kt-btn qms-button btn btn-sm btn-secondary" onClick={() => { resetFeedback(); setView("feedback"); }}>
-              <Icon name="star" /> Rate My Experience
-            </button>
-          )}
-        </div>
-      </div>
+			{/* ── Header ── */}
+			<div className="kt-header qms-shell-header">
+				{/* PWA Status Bar */}
+				{!isOnline && (
+					<div style={{
+						position: 'absolute',
+						top: 0,
+						left: 0,
+						right: 0,
+						height: '3px',
+						background: '#e91e63',
+						animation: 'blink 1s infinite',
+					}} />
+				)}
 
-      {/* ── Body ── */}
-      <div className="kt-body qms-content">
+				<div className="kt-header-left qms-shell-brand">
+					<div className="kt-logo qms-shell-logo"><Icon name="device-desktop" style={{ marginRight: 0 }} /></div>
+					<div>
+						<div className="kt-title qms-shell-title"><Icon name="dashboard" /> Queue Management System</div>
+						<div className="kt-subtitle qms-shell-subtitle">Ministry of Infrastructure · Self-Service Kiosk</div>
+					</div>
+				</div>
+				<div className="kt-header-right qms-shell-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+					{/* ── Online/Offline Status ── */}
+					<div style={{
+						display: 'flex',
+						alignItems: 'center',
+						gap: '6px',
+						padding: '4px 10px',
+						borderRadius: '4px',
+						background: isOnline ? '#e8f5e9' : '#fce4ec',
+						color: isOnline ? '#2e7d32' : '#c2185b',
+						fontSize: '12px',
+						fontWeight: '600',
+					}}>
+						<span style={{
+							width: '8px',
+							height: '8px',
+							borderRadius: '50%',
+							background: isOnline ? '#4caf50' : '#e91e63',
+							animation: isOnline ? 'none' : 'blink 1s infinite',
+						}} />
+						{isOnline ? 'Online' : 'Offline'}
+					</div>
 
-        {/* ── Service selection ── */}
-        {view === "service" && (
-          <>
-            <div className="kt-heading">
-              Select a <span>Service</span>
-            </div>
-            <div className="kt-grid">
-              {services.map((s) => (
-                <div
-                  key={s.name}
-                  className="kt-service-card"
-                  style={{ backgroundColor: s.background_color || "#e8f4fd" }}
-                  onClick={() => handleServiceSelect(s.name)}
-                >
-                  {s.image && <img src={s.image} className="watermark" alt="" />}
-                  <span className="kt-service-label">{s.name}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+					{/* ── Install App Button ── */}
+					{installPrompt && !isInstalled && (
+						<button
+							onClick={handleInstallApp}
+							style={{
+								background: '#2490ef',
+								color: 'white',
+								border: 'none',
+								padding: '6px 12px',
+								borderRadius: '4px',
+								fontSize: '12px',
+								fontWeight: '600',
+								cursor: 'pointer',
+								display: 'flex',
+								alignItems: 'center',
+								gap: '6px',
+								transition: 'all 0.2s',
+							}}
+							onMouseEnter={(e) => e.target.style.background = '#1a7fd4'}
+							onMouseLeave={(e) => e.target.style.background = '#2490ef'}
+							title="Install QMS as app for offline access"
+						>
+							<Icon name="download" /> Install App
+						</button>
+					)}
 
-        {/* ── Checklist ── */}
-        {view === "checklist" && pendingService && (() => {
-          const requiredItems = checklistItems.filter((i) => i.is_required);
-          const allRequiredChecked =
-            requiredItems.length === 0 ||
-            requiredItems.every((i) => checkedItems.has(i.name));
-          return (
-            <div className="kt-checklist-card">
-              <div className="kt-checklist-service-badge"><Icon name="checklist" /> {pendingService}</div>
-              <div className="kt-checklist-title">Before You Proceed</div>
-              <div className="kt-checklist-sub">
-                Please confirm the following requirements. Items marked <span style={{ color: "#ef4444", fontWeight: 700 }}>*</span> are mandatory.
-              </div>
 
-              <div className="kt-checklist-items">
-                {checklistItems.map((item) => {
-                  const checked = checkedItems.has(item.name);
-                  return (
-                    <div
-                      key={item.name}
-                      className={`kt-check-row${checked ? " checked" : ""}`}
-                      onClick={() => toggleItem(item.name)}
-                    >
-                      <div className="kt-check-box">{checked ? "✓" : ""}</div>
-                      <div className="kt-check-label">
-                        <div className="kt-check-item-text">
-                          {item.checklist_item}
-                          {item.is_required ? <span className="kt-check-required">*</span> : null}
-                        </div>
-                        {item.description ? (
-                          <div className="kt-check-desc">{item.description}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+					{view !== "service" && (
+						<button className="kt-btn qms-button btn btn-sm btn-light" onClick={() => {
+							setTicketData(null);
+							resetFeedback();
+							resetChecklist();
+							setView("service");
+						}}>
+							<Icon name="arrow-left" /> Back
+						</button>
+					)}
+					{view === "service" && (
+						<button className="kt-btn qms-button btn btn-sm btn-secondary" onClick={() => { resetFeedback(); setView("feedback"); }}>
+							<Icon name="star" /> Rate My Experience
+						</button>
+					)}
+				</div>
+			</div>
 
-              <button
-                className="kt-btn qms-button primary"
-                style={{ width: "100%", height: 48, fontSize: 15, justifyContent: "center" }}
-                disabled={!allRequiredChecked || loading}
-                onClick={handleChecklistConfirm}
-              >
-                {loading ? "Please wait…" : "Get Ticket →"}
-              </button>
-              <button
-                className="kt-btn qms-button"
-                style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
-                onClick={() => { resetChecklist(); setView("service"); }}
-              >
-                ← Back
-              </button>
-            </div>
-          );
-        })()}
+			{/* ── Body ── */}
+			<div className="kt-body qms-content">
 
-        {/* ── Ticket issued ── */}
-        {view === "ticket" && ticketData && (
-          <div className="kt-ticket-card">
-            <div className="kt-ticket-header">
-              <div className="kt-ticket-logo">MOI</div>
-              <div>
-                <div className="kt-ticket-title">Queue Management System</div>
-                <div className="kt-ticket-meta">{ticketData.service}</div>
-              </div>
-            </div>
+				{/* ── Service selection ── */}
+				{view === "service" && (
+					<>
+						{/* <div className="kt-heading">
+							Select a <span>Service</span>
+						</div> */}
+						<div className="kt-grid">
+							{services.map((s) => (
+								<div
+									key={s.name}
+									className="kt-service-card"
+									style={{ backgroundColor: s.background_color || "#e8f4fd" }}
+									onClick={() => handleServiceSelect(s.name)}
+								>
+									{s.image && <i className={`fas ${s.image} watermark-icon`} aria-hidden="true" />}
+									<span className="kt-service-label">{s.name}</span>
+								</div>
+							))}
+						</div>
+					</>
+				)}
 
-            <div className="kt-ticket-main">
-              <div className="kt-ticket-label">Your number</div>
-              <div className="kt-ticket-number">{ticketData.displayNumber}</div>
-              <div className="kt-ticket-sub">Full Ticket ID: {ticketData.fullNumber}</div>
-              <div className="kt-ticket-time">Issued at {ticketData.time}</div>
-            </div>
+				{/* ── Checklist ── */}
+				{view === "checklist" && pendingService && (() => {
+					const requiredItems = checklistItems.filter((i) => i.is_required);
+					const allRequiredChecked =
+						requiredItems.length === 0 ||
+						requiredItems.every((i) => checkedItems.has(i.name));
+					return (
+						<div className="kt-checklist-card">
+							<div className="kt-checklist-service-badge"><Icon name="checklist" /> {pendingService}</div>
+							<div className="kt-checklist-title">Before You Proceed</div>
+							<div className="kt-checklist-sub">
+								Please confirm the following requirements. Items marked <span style={{ color: "#ef4444", fontWeight: 700 }}>*</span> are mandatory.
+							</div>
 
-            <div className="kt-ticket-barcode" aria-label="Barcode">
-              <div className="kt-barcode-lines">
-                {Array(24).fill(0).map((_, i) => (
-                  <span key={i} className={`kt-barcode-line ${i % 7 === 0 ? "thick" : "thin"}`} />
-                ))}
-              </div>
-              <div className="kt-barcode-text">{ticketData.fullNumber}</div>
-            </div>
+							<div className="kt-checklist-items">
+								{checklistItems.map((item) => {
+									const checked = checkedItems.has(item.name);
+									return (
+										<div
+											key={item.name}
+											className={`kt-check-row${checked ? " checked" : ""}`}
+											onClick={() => toggleItem(item.name)}
+										>
+											<div className="kt-check-box">{checked ? "✓" : ""}</div>
+											<div className="kt-check-label">
+												<div className="kt-check-item-text">
+													{item.checklist_item}
+													{item.is_required ? <span className="kt-check-required">*</span> : null}
+												</div>
+												{item.description ? (
+													<div className="kt-check-desc">{item.description}</div>
+												) : null}
+											</div>
+										</div>
+									);
+								})}
+							</div>
 
-            <div className="kt-ticket-actions">
-              <button className="kt-btn qms-button primary" onClick={printTicket} disabled={loading}>
-                <Icon name="print" /> Print Ticket
-              </button>
-              <button className="kt-btn qms-button" onClick={() => { setTicketData(null); setView("service"); }}>
-                <Icon name="x" /> Close
-              </button>
-            </div>
+							<button
+								className="kt-btn qms-button primary"
+								style={{ width: "100%", height: 48, fontSize: 15, justifyContent: "center" }}
+								disabled={!allRequiredChecked || loading}
+								onClick={handleChecklistConfirm}
+							>
+								{loading ? "Please wait…" : "Get Ticket →"}
+							</button>
+							<button
+								className="kt-btn qms-button"
+								style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
+								onClick={() => { resetChecklist(); setView("service"); }}
+							>
+								← Back
+							</button>
+						</div>
+					);
+				})()}
 
-            <div className="kt-ticket-note">
-              Please wait for your number to be displayed on the counter screen.
-            </div>
-          </div>
-        )}
+				{/* ── Ticket issued ── */}
+				{view === "ticket" && ticketData && (
+					<div className="kt-ticket-card" style={{
+						display: "flex",
+						flexDirection: "column",
+						gap: "clamp(12px, 4vw, 20px)",
+						padding: "clamp(16px, 5vw, 32px)",
+						maxWidth: "30%",
+						margin: "0 auto"
+					}}>
+						{/* Header: Ministry branding */}
+						<div style={{ textAlign: "center" }}>
+							{ministryLogo ? (
+								<img src={ministryLogo} style={{
+									width: "clamp(40px, 10vw, 80px)",
+									height: "auto",
+									marginBottom: "clamp(6px, 2vw, 12px)"
+								}} alt="Ministry Logo" />
+							) : (
+								<div style={{ fontSize: "clamp(32px, 10vw, 48px)", marginBottom: "clamp(6px, 2vw, 12px)" }}>🏛️</div>
+							)}
+							<div style={{
+								fontSize: "clamp(11px, 3vw, 14px)",
+								fontWeight: "bold",
+								letterSpacing: "0.05em",
+								color: "#333",
+								lineHeight: "1.2"
+							}}>
+								MINISTRY OF INFRASTRUCTURE
+							</div>
+						</div>
 
-        {/* ── Feedback: enter ticket number ── */}
-        {view === "feedback" && (
-          <div className="kt-feedback-card">
-            <div className="kt-fb-icon"><Icon name="star" /></div>
-            <div className="kt-fb-title">Rate Your Experience</div>
-            <div className="kt-fb-sub">Enter your ticket number to leave feedback</div>
+						{/* Service and timestamp */}
+						<div style={{ textAlign: "center" }}>
+							<div style={{
+								fontSize: "clamp(13px, 2.5vw, 16px)",
+								color: "#666",
+								marginBottom: "clamp(4px, 1vw, 8px)",
+								lineHeight: "1.2"
+							}}>{ticketData.service}</div>
+							<div style={{
+								fontSize: "clamp(11px, 2vw, 13px)",
+								color: "#999",
+								lineHeight: "1.2"
+							}}>{ticketData.time}</div>
+						</div>
 
-            {fbError && <div className="kt-error">{fbError}</div>}
+						{/* Main ticket heading */}
+						<div style={{ textAlign: "center" }}>
+							<div style={{
+								fontSize: "clamp(32px, 12vw, 56px)",
+								fontWeight: "900",
+								letterSpacing: "-2px",
+								color: "#000",
+								lineHeight: "1",
+								wordBreak: "break-word"
+							}}>
+								Ticket #{ticketData.displayNumber}
+							</div>
+						</div>
 
-            <div className="kt-input-wrap">
-              <label>Ticket Number</label>
-              <input
-                className={`kt-input${fbError ? " error" : ""}`}
-                value={fbTicket}
-                onChange={(e) => { setFbTicket(e.target.value.toUpperCase()); setFbError(""); }}
-                placeholder="e.g. 042 or QMS-TICKET-0042"
-                maxLength={30}
-                onKeyDown={(e) => e.key === "Enter" && handleFeedbackLookup()}
-              />
-            </div>
+						{/* Full ticket number */}
+						<div style={{
+							textAlign: "center",
+							fontSize: "clamp(12px, 2.5vw, 16px)",
+							color: "#333",
+							fontFamily: "monospace",
+							fontWeight: "bold",
+							letterSpacing: "1px",
+							wordBreak: "break-all"
+						}}>
+							{ticketData.fullNumber}
+						</div>
 
-            <button
-              className="kt-btn qms-button primary"
-              style={{ width: "100%", height: 44, fontSize: 15, justifyContent: "center" }}
-              onClick={handleFeedbackLookup}
-              disabled={loading}
-            >
-              {loading ? "Looking up…" : "Continue →"}
-            </button>
+						{/* QR Code - only shown in actual print output, hidden in preview */}
 
-            <button
-              className="kt-btn qms-button"
-              style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
-              onClick={() => { resetFeedback(); setView("service"); }}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
+						{/* Divider */}
+						<div style={{ borderTop: "1px dashed #999" }} />
 
-        {/* ── Feedback: star rating ── */}
-        {view === "feedback_entry" && fbTicketInfo && (
-          <div className="kt-feedback-card">
-            <div className="kt-fb-icon">💬</div>
-            <div className="kt-fb-title">How was your experience?</div>
+						{/* Footer message */}
+						<div style={{
+							textAlign: "center",
+							fontSize: "clamp(11px, 2vw, 13px)",
+							color: "#666",
+							lineHeight: "1.6"
+						}}>
+							Present this ticket at the counter<br />when called.<br /><br />Thank you for your patience.
+						</div>
 
-            <div className="kt-ticket-chip">
-              <span className="chip-num">#{fbTicketInfo.name.slice(-3)}</span>
-              <span className="chip-svc">{fbTicketInfo.service_requested}</span>
-            </div>
+						{/* Action buttons */}
+						<div className="kt-ticket-actions">
+							<button className="kt-btn qms-button primary" onClick={printTicket} disabled={loading} style={{ flex: 1 }}>
+								<Icon name="print" /> Print Ticket
+							</button>
+							<button className="kt-btn qms-button" onClick={() => { setTicketData(null); setView("service"); }} style={{ flex: 1 }}>
+								<Icon name="x" /> Close
+							</button>
+						</div>
+					</div>
+				)}
 
-            {fbError && <div className="kt-error">{fbError}</div>}
+				{/* ── Feedback: enter ticket number ── */}
+				{view === "feedback" && (
+					<div className="kt-feedback-card">
+						<div className="kt-fb-icon"><Icon name="star" /></div>
+						<div className="kt-fb-title">Rate Your Experience</div>
+						<div className="kt-fb-sub">Enter your ticket number to leave feedback</div>
 
-            {/* Stars */}
-            <div className="kt-stars">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <span
-                  key={star}
-                  className={`kt-star ${star <= (fbHover || fbRating) ? "active" : ""} ${star <= fbHover ? "hovered" : ""}`}
-                  onMouseEnter={() => setFbHover(star)}
-                  onMouseLeave={() => setFbHover(0)}
-                  onClick={() => { setFbRating(star); setFbError(""); }}
-                >
-                  ★
-                </span>
-              ))}
-            </div>
+						{fbError && <div className="kt-error">{fbError}</div>}
 
-            <div
-              className="kt-rating-label"
-              style={{ color: fbRating ? ratingColors[fbRating] : "#d1d8dd" }}
-            >
-              {fbRating ? ratingLabels[fbRating] : "Tap a star to rate"}
-            </div>
+						<div className="kt-input-wrap">
+							<label>Ticket Number</label>
+							<input
+								className={`kt-input${fbError ? " error" : ""}`}
+								value={fbTicket}
+								onChange={(e) => { setFbTicket(e.target.value.toUpperCase()); setFbError(""); }}
+								placeholder="e.g. 042 or QMS-TICKET-0042"
+								maxLength={30}
+								onKeyDown={(e) => e.key === "Enter" && handleFeedbackLookup()}
+							/>
+						</div>
 
-            {/* Optional comment */}
-            <div className="kt-input-wrap">
-              <label>Comments (optional)</label>
-              <textarea
-                className="kt-textarea"
-                rows={3}
-                value={fbComment}
-                onChange={(e) => setFbComment(e.target.value)}
-                placeholder="Tell us more about your visit…"
-              />
-            </div>
+						<button
+							className="kt-btn qms-button primary"
+							style={{ width: "100%", height: 44, fontSize: 15, justifyContent: "center" }}
+							onClick={handleFeedbackLookup}
+							disabled={loading}
+						>
+							{loading ? "Looking up…" : "Continue →"}
+						</button>
 
-            <button
-              className="kt-btn qms-button primary"
-              style={{ width: "100%", height: 44, fontSize: 15, justifyContent: "center" }}
-              onClick={handleFeedbackSubmit}
-              disabled={fbSubmitting || fbRating === 0}
-            >
-              {fbSubmitting ? "Submitting…" : "Submit Feedback"}
-            </button>
+						<button
+							className="kt-btn qms-button"
+							style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
+							onClick={() => { resetFeedback(); setView("service"); }}
+						>
+							Cancel
+						</button>
+					</div>
+				)}
 
-            <button
-              className="kt-btn qms-button"
-              style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
-              onClick={() => { resetFeedback(); setView("feedback"); }}
-            >
-              ← Change Ticket
-            </button>
-          </div>
-        )}
+				{/* ── Feedback: star rating ── */}
+				{view === "feedback_entry" && fbTicketInfo && (
+					<div className="kt-feedback-card">
+						<div className="kt-fb-icon">💬</div>
+						<div className="kt-fb-title">How was your experience?</div>
 
-        {/* ── Thank you ── */}
-        {view === "thanks" && (
-          <div className="kt-thanks-card">
-            <div className="kt-thanks-icon">🎉</div>
-            <div className="kt-thanks-title">Thank You!</div>
-            <div className="kt-thanks-sub">
-              Your feedback has been submitted.<br />
-              We appreciate you taking the time.
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 32 }}>
-              <button
-                className="kt-btn qms-button primary"
-                onClick={() => { resetFeedback(); setView("service"); }}
-              >
-                Back to Home
-              </button>
-            </div>
-            <div className="kt-thanks-bar">
-              <div className="kt-thanks-fill" />
-            </div>
-          </div>
-        )}
+						<div className="kt-ticket-chip">
+							<span className="chip-num">#{fbTicketInfo.name.slice(-3)}</span>
+							<span className="chip-svc">{fbTicketInfo.service_requested}</span>
+						</div>
 
-      </div>
+						{fbError && <div className="kt-error">{fbError}</div>}
 
-      {/* ── Printer Settings Drawer ── */}
-      <div className={`kt-printer-panel-overlay${showPrinterSettings ? " open" : ""}`} onClick={() => setShowPrinterSettings(false)} />
-      <div className={`kt-printer-panel${showPrinterSettings ? " open" : ""}`}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div className="kt-printer-panel-title">Printer Settings</div>
-          <button className="kt-printer-panel-close" onClick={() => setShowPrinterSettings(false)}>×</button>
-        </div>
+						{/* Stars */}
+						<div className="kt-stars">
+							{[1, 2, 3, 4, 5].map((star) => (
+								<span
+									key={star}
+									className={`kt-star ${star <= (fbHover || fbRating) ? "active" : ""} ${star <= fbHover ? "hovered" : ""}`}
+									onMouseEnter={() => setFbHover(star)}
+									onMouseLeave={() => setFbHover(0)}
+									onClick={() => { setFbRating(star); setFbError(""); }}
+								>
+									★
+								</span>
+							))}
+						</div>
 
-        <div className="kt-printer-input-group">
-          <label className="kt-printer-label">IP Address</label>
-          <input
-            className="kt-printer-input"
-            type="text"
-            placeholder="e.g., 192.168.1.100"
-            value={printerConfig.ip || ""}
-            onChange={(e) => {
-              const newConfig = { ...printerConfig, ip: e.target.value };
-              setPrinterConfig(newConfig);
-              localStorage.setItem("qms_printer_config", JSON.stringify(newConfig));
-            }}
-          />
-        </div>
+						<div
+							className="kt-rating-label"
+							style={{ color: fbRating ? ratingColors[fbRating] : "#d1d8dd" }}
+						>
+							{fbRating ? ratingLabels[fbRating] : "Tap a star to rate"}
+						</div>
 
-        <div className="kt-printer-input-group">
-          <label className="kt-printer-label">Port</label>
-          <input
-            className="kt-printer-input"
-            type="text"
-            placeholder="8008"
-            value={printerConfig.port || ""}
-            onChange={(e) => {
-              const newConfig = { ...printerConfig, port: e.target.value };
-              setPrinterConfig(newConfig);
-              localStorage.setItem("qms_printer_config", JSON.stringify(newConfig));
-            }}
-          />
-        </div>
+						{/* Optional comment */}
+						<div className="kt-input-wrap">
+							<label>Comments (optional)</label>
+							<textarea
+								className="kt-textarea"
+								rows={3}
+								value={fbComment}
+								onChange={(e) => setFbComment(e.target.value)}
+								placeholder="Tell us more about your visit…"
+							/>
+						</div>
 
-        <div className="kt-printer-input-group">
-          <label className="kt-printer-label">Device ID</label>
-          <input
-            className="kt-printer-input"
-            type="text"
-            placeholder="local_printer"
-            value={printerConfig.deviceId || ""}
-            onChange={(e) => {
-              const newConfig = { ...printerConfig, deviceId: e.target.value };
-              setPrinterConfig(newConfig);
-              localStorage.setItem("qms_printer_config", JSON.stringify(newConfig));
-            }}
-          />
-        </div>
+						<button
+							className="kt-btn qms-button primary"
+							style={{ width: "100%", height: 44, fontSize: 15, justifyContent: "center" }}
+							onClick={handleFeedbackSubmit}
+							disabled={fbSubmitting || fbRating === 0}
+						>
+							{fbSubmitting ? "Submitting…" : "Submit Feedback"}
+						</button>
 
-        {window.location.protocol === "https:" && printerConfig.port === "8008" && (
-          <div style={{ padding: "10px 12px", background: "rgba(245, 158, 11, 0.1)", border: "1px solid #fbbf24", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
-            ⚠️ HTTPS detected but port is 8008 (HTTP). iOS will block this connection. Use port 8043 (HTTPS) instead.
-          </div>
-        )}
+						<button
+							className="kt-btn qms-button"
+							style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
+							onClick={() => { resetFeedback(); setView("feedback"); }}
+						>
+							← Change Ticket
+						</button>
+					</div>
+				)}
 
-        <div className={`kt-printer-status ${epos.status}`}>
-          <div className="kt-printer-status-dot" />
-          <div className="kt-printer-status-text">{epos.status || "idle"}</div>
-        </div>
+				{/* ── Thank you ── */}
+				{view === "thanks" && (
+					<div className="kt-thanks-card">
+						<div className="kt-thanks-icon">🎉</div>
+						<div className="kt-thanks-title">Thank You!</div>
+						<div className="kt-thanks-sub">
+							Your feedback has been submitted.<br />
+							We appreciate you taking the time.
+						</div>
+						<div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 32 }}>
+							<button
+								className="kt-btn qms-button primary"
+								onClick={() => { resetFeedback(); setView("service"); }}
+							>
+								Back to Home
+							</button>
+						</div>
+						<div className="kt-thanks-bar">
+							<div className="kt-thanks-fill" />
+						</div>
+					</div>
+				)}
 
-        {epos.error && <div className="kt-printer-status-error">Error: {epos.error}</div>}
-
-        <button className="kt-printer-btn" onClick={() => epos.testConnection()}>
-          {epos.status === "connecting" ? "Testing..." : "Test Connection"}
-        </button>
-      </div>
-    </div>
-  );
+			</div>
+		</div>
+	);
 }
