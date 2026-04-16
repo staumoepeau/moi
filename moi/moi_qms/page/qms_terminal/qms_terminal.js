@@ -34,12 +34,47 @@ frappe.pages["qms_terminal"].on_page_load = function (wrapper) {
 		console.log('[QMS] Manifest link added');
 	}
 
-	// Also add as meta tag for compatibility
+	// Add theme color meta tag
 	if (!document.querySelector('meta[name="theme-color"]')) {
 		const meta = document.createElement('meta');
 		meta.name = 'theme-color';
 		meta.content = '#2490ef';
 		document.head.appendChild(meta);
+	}
+
+	// ── iOS-specific PWA Support ──────────────────────────────────────
+	// Enable standalone mode on iOS
+	if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+		const iosMeta = document.createElement('meta');
+		iosMeta.name = 'apple-mobile-web-app-capable';
+		iosMeta.content = 'yes';
+		document.head.appendChild(iosMeta);
+		console.log('[QMS] iOS standalone mode enabled');
+	}
+
+	// Set iOS status bar style
+	if (!document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')) {
+		const statusBarMeta = document.createElement('meta');
+		statusBarMeta.name = 'apple-mobile-web-app-status-bar-style';
+		statusBarMeta.content = 'black-translucent';
+		document.head.appendChild(statusBarMeta);
+	}
+
+	// Set iOS app title (shows on home screen)
+	if (!document.querySelector('meta[name="apple-mobile-web-app-title"]')) {
+		const titleMeta = document.createElement('meta');
+		titleMeta.name = 'apple-mobile-web-app-title';
+		titleMeta.content = 'MOI QMS';
+		document.head.appendChild(titleMeta);
+	}
+
+	// Add iOS home screen icon (required for home screen appearance)
+	if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+		const icon = document.createElement('link');
+		icon.rel = 'apple-touch-icon';
+		icon.href = '/assets/moi/icons/icon-192.png';
+		document.head.appendChild(icon);
+		console.log('[QMS] iOS home screen icon added');
 	}
 
 	// Register service worker for offline support
