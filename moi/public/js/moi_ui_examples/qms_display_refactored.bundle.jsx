@@ -9,8 +9,8 @@ import React from "react"
 import ReactDOM from "react-dom/client"
 import { QmsDisplayRefactored } from "./QmsDisplayRefactored"
 
-// Import mywhy-ui CSS
-import "mywhy-ui/globals.css"
+// Import mywhy-ui CSS (commented out - not needed for production)
+// import "mywhy-ui/globals.css"
 
 const root = ReactDOM.createRoot(document.getElementById("app"))
 root.render(
