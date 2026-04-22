@@ -8,6 +8,8 @@
  "field_order": [
   "customer_id",
   "service_requested",
+  "customer_type",
+  "payment_method",
   "counter",
   "officer",
   "waiting_since",
@@ -42,6 +44,24 @@
    "in_standard_filter": 1,
    "label": "Service Requested",
    "options": "QMS Service"
+  },
+  {
+   "fieldname": "customer_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "in_preview": 1,
+   "label": "Customer Type",
+   "options": "Individual\nBusiness"
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "in_preview": 1,
+   "label": "Payment Method",
+   "options": "Cash\nCheque"
   },
   {
    "fieldname": "column_break_zlmv",

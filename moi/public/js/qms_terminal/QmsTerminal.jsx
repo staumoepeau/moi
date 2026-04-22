@@ -4,9 +4,9 @@ import { useViewport } from "../qms_shared/useViewport";
 import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
 import QRCode from "qrcode";
 
-// ── Views: "service" | "checklist" | "ticket" | "feedback" | "feedback_entry" | "thanks"
+// ── Views: "customer_type" | "payment_type" | "service" | "checklist" | "ticket" | "feedback" | "feedback_entry" | "thanks"
 export function QmsTerminal() {
-	const [view, setView] = React.useState("service");
+	const [view, setView] = React.useState("customer_type");
 	const [services, setServices] = React.useState([]);
 	const [ticketData, setTicketData] = React.useState(null);
 	const [loading, setLoading] = React.useState(false);
@@ -32,14 +32,26 @@ export function QmsTerminal() {
 	const [fbSubmitting, setFbSubmitting] = React.useState(false);
 	const [fbTicketInfo, setFbTicketInfo] = React.useState(null); // resolved ticket doc
 
+	// Pre-service selection state
+	const [selectedCustomerType, setSelectedCustomerType] = React.useState(null);
+	const [selectedPaymentMethod, setSelectedPaymentMethod] = React.useState(null);
+
+	const resetPreService = () => {
+		setSelectedCustomerType(null);
+		setSelectedPaymentMethod(null);
+	};
+
 	// Ministry branding
 	const { logo: ministryLogo, name: ministryName } = useMinistryBranding();
 
-	// Auto-return to service view timer
+	// Auto-return to customer_type view timer
 	const autoReturnRef = React.useRef(null);
 	const scheduleReturn = (ms = 10000) => {
 		if (autoReturnRef.current) clearTimeout(autoReturnRef.current);
-		autoReturnRef.current = setTimeout(() => setView("service"), ms);
+		autoReturnRef.current = setTimeout(() => {
+			resetPreService();
+			setView("customer_type");
+		}, ms);
 	};
 
 	React.useEffect(() => {
@@ -192,6 +204,8 @@ export function QmsTerminal() {
 					fullNumber: res.message.predicted_name,
 					displayNumber: res.message.display_number,
 					service: serviceName,
+					customerType: selectedCustomerType,
+					paymentMethod: selectedPaymentMethod,
 					time: new Date().toLocaleString(),
 					isPending: true, // Mark as preview (not yet saved to DB)
 				};
@@ -211,7 +225,11 @@ export function QmsTerminal() {
 		try {
 			const res = await frappe.call({
 				method: "moi.api.qms.create_ticket",
-				args: { service_name: serviceName },
+				args: {
+					service_name: serviceName,
+					customer_type: selectedCustomerType,
+					payment_method: selectedPaymentMethod,
+				},
 			});
 			return res.message; // Return the saved ticket name
 		} catch (e) {
@@ -376,6 +394,9 @@ export function QmsTerminal() {
           <div class="ministry-name">MINISTRY OF INFRASTRUCTURE</div>
 
           <div class="service-name">${data.service}</div>
+          <div style="font-size: clamp(8pt,1.8vw,10pt); color: #555; margin-bottom: 2mm;">
+            ${data.customerType || ''} ${data.customerType && data.paymentMethod ? '·' : ''} ${data.paymentMethod || ''}
+          </div>
           <div class="timestamp">${data.time}</div>
 
           <div class="ticket-heading">Ticket #${data.displayNumber}</div>
@@ -1127,17 +1148,30 @@ export function QmsTerminal() {
 					)}
 
 
-					{view !== "service" && (
+					{view !== "customer_type" && (
 						<button className="kt-btn qms-button btn btn-sm btn-light" onClick={() => {
 							setTicketData(null);
 							resetFeedback();
 							resetChecklist();
-							setView("service");
+							if (view === "payment_type") {
+								setSelectedCustomerType(null);
+								setView("customer_type");
+							} else if (view === "service") {
+								setSelectedPaymentMethod(null);
+								setView("payment_type");
+							} else if (view === "checklist") {
+								resetChecklist();
+								setView("service");
+							} else {
+								resetPreService();
+								resetChecklist();
+								setView("customer_type");
+							}
 						}}>
 							<Icon name="arrow-left" /> Back
 						</button>
 					)}
-					{view === "service" && (
+					{view === "customer_type" && (
 						<button className="kt-btn qms-button btn btn-sm btn-secondary" onClick={() => { resetFeedback(); setView("feedback"); }}>
 							<Icon name="star" /> Rate My Experience
 						</button>
@@ -1147,6 +1181,71 @@ export function QmsTerminal() {
 
 			{/* ── Body ── */}
 			<div className="kt-body qms-content">
+
+				{/* ── Customer Type selection ── */}
+				{view === "customer_type" && (
+					<div className="kt-checklist-card" style={{ maxWidth: 640, textAlign: "center" }}>
+						<div className="kt-checklist-title">Welcome</div>
+						<div className="kt-checklist-sub" style={{ marginBottom: 32 }}>
+							Please select your customer type to get started.
+						</div>
+						<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+							{[
+								{ label: "Individual", color: "#e8f4fd", subtitle: "" },
+								{ label: "Business", color: "#fef3c7", subtitle: "Government Ministry" },
+							].map(({ label, color, subtitle }) => (
+								<div key={label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+									<div
+										className="kt-service-card"
+										style={{ backgroundColor: color, height: cardH, cursor: "pointer" }}
+										onClick={() => {
+											setSelectedCustomerType(label);
+											setView("payment_type");
+										}}
+									>
+										<span className="kt-service-label">{label}</span>
+									</div>
+									{subtitle && (
+										<div style={{ fontSize: "13px", color: "#666", fontWeight: 500 }}>
+											{subtitle}
+										</div>
+									)}
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
+				{/* ── Payment Method selection ── */}
+				{view === "payment_type" && (
+					<div className="kt-checklist-card" style={{ maxWidth: 640, textAlign: "center" }}>
+						<div className="kt-checklist-service-badge">
+							<Icon name="person" /> {selectedCustomerType}
+						</div>
+						<div className="kt-checklist-title">Payment Method</div>
+						<div className="kt-checklist-sub" style={{ marginBottom: 32 }}>
+							How will you be paying today?
+						</div>
+						<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+							{[
+								{ label: "Cash", color: "#f0fdf4" },
+								{ label: "Cheque", color: "#f5f3ff" },
+							].map(({ label, color }) => (
+								<div
+									key={label}
+									className="kt-service-card"
+									style={{ backgroundColor: color, height: cardH, cursor: "pointer" }}
+									onClick={() => {
+										setSelectedPaymentMethod(label);
+										setView("service");
+									}}
+								>
+									<span className="kt-service-label">{label}</span>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
 
 				{/* ── Service selection ── */}
 				{view === "service" && (
@@ -1321,7 +1420,7 @@ export function QmsTerminal() {
 							<button className="kt-btn qms-button primary" onClick={printTicket} disabled={loading} style={{ flex: 1 }}>
 								<Icon name="print" /> Print Ticket
 							</button>
-							<button className="kt-btn qms-button" onClick={() => { setTicketData(null); setView("service"); }} style={{ flex: 1 }}>
+							<button className="kt-btn qms-button" onClick={() => { setTicketData(null); resetPreService(); setView("customer_type"); }} style={{ flex: 1 }}>
 								<Icon name="x" /> Close
 							</button>
 						</div>
@@ -1361,7 +1460,7 @@ export function QmsTerminal() {
 						<button
 							className="kt-btn qms-button"
 							style={{ width: "100%", height: 40, fontSize: 14, justifyContent: "center", marginTop: 10 }}
-							onClick={() => { resetFeedback(); setView("service"); }}
+							onClick={() => { resetFeedback(); setView("customer_type"); }}
 						>
 							Cancel
 						</button>
@@ -1446,7 +1545,7 @@ export function QmsTerminal() {
 						<div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 32 }}>
 							<button
 								className="kt-btn qms-button primary"
-								onClick={() => { resetFeedback(); setView("service"); }}
+								onClick={() => { resetFeedback(); resetPreService(); setView("customer_type"); }}
 							>
 								Back to Home
 							</button>
