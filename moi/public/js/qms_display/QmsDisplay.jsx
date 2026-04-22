@@ -9,6 +9,7 @@ export function QmsDisplay() {
   const [isRecall, setIsRecall] = React.useState(false); // flashes the recall badge
   const [queueCounts, setQueueCounts] = React.useState([]); // per-service waiting counts
   const [counterStatus, setCounterStatus] = React.useState([]); // counter status (Open/Closed/Break)
+  const [markedForRecall, setMarkedForRecall] = React.useState([]); // tickets marked for recall
   const [isFullscreen, setIsFullscreen] = React.useState(false); // track fullscreen state
 
   // Ministry branding
@@ -58,6 +59,34 @@ export function QmsDisplay() {
     }
   };
 
+  // ── Fetch marked for recall tickets ────────────────────────────────────────
+  const fetchMarkedForRecall = async () => {
+    try {
+      // Get tickets marked for recall directly from database
+      const tickets = await frappe.db.get_list("QMS Ticket", {
+        filters: { status: "Completed", marked_for_recall: 1 },
+        fields: ["name", "customer_name", "service_requested", "recall_reason", "counter"],
+        order_by: "completed_at desc",
+        limit: 8,
+      });
+
+      // Add counter number for each ticket
+      const withCounterNum = await Promise.all(
+        tickets.map(async (t) => {
+          if (t.counter) {
+            const counter = await frappe.db.get_value("QMS Counter", t.counter, "counter_number");
+            t.counter_number = counter.message?.counter_number || t.counter;
+          }
+          return t;
+        })
+      );
+
+      setMarkedForRecall(withCounterNum);
+    } catch (e) {
+      console.error("Marked for recall fetch failed:", e);
+    }
+  };
+
   // ── Announce ticket via speech synthesis ─────────────────────────────────
   const announce = (ticketShort, counterNumber, recall = false) => {
     // Chime first
@@ -87,11 +116,13 @@ export function QmsDisplay() {
     // Initial fetch
     fetchQueueCounts();
     fetchCounterStatus();
+    fetchMarkedForRecall();
 
     // Periodic refresh every 15 seconds (more frequent for smoother updates)
     const interval = setInterval(() => {
       fetchQueueCounts();
       fetchCounterStatus();
+      fetchMarkedForRecall();
     }, 15000);
 
     const handleTicketCalled = (data) => {
@@ -113,6 +144,7 @@ export function QmsDisplay() {
       // Immediately refresh queue counts and counter status when ticket is called
       fetchQueueCounts();
       fetchCounterStatus();
+      fetchMarkedForRecall();
     };
 
     const handleTicketRecalled = (data) => {
@@ -123,9 +155,10 @@ export function QmsDisplay() {
       // Flash the recall state, then clear after 8s
       setTimeout(() => setIsRecall(false), 8000);
 
-      // Refresh queue counts and counter status on recall
+      // Refresh queue counts, counter status, and recall list on recall
       fetchQueueCounts();
       fetchCounterStatus();
+      fetchMarkedForRecall();
     };
 
     // Listen to real-time events
@@ -136,6 +169,7 @@ export function QmsDisplay() {
     frappe.realtime.on("qms_update", () => {
       fetchQueueCounts();
       fetchCounterStatus();
+      fetchMarkedForRecall();
     });
 
     // Listen for real-time counter status updates
@@ -367,6 +401,29 @@ export function QmsDisplay() {
     .ds-status-badge.open { background: #166534; color: #86efac; }
     .ds-status-badge.closed { background: #7c2d12; color: #fdba74; }
     .ds-status-badge.break { background: #1e3a8a; color: #60a5fa; }
+
+    /* ── Marked for Recall Panel ── */
+    .ds-recall-panel {
+      flex: 0.8; background: #0f172a;
+      display: flex; flex-direction: column;
+      padding: 20px; overflow: auto;
+      border-top: 1px solid #1e293b;
+    }
+    .ds-recall-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .15em; color: #f59e0b; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .ds-recall-list { display: flex; flex-direction: column; gap: 6px; }
+    .ds-recall-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; background: #7c2d12;
+      border: 1px solid #f59e0b; border-radius: 6px;
+      font-size: 11px;
+    }
+    .ds-recall-ticket { font-weight: 700; color: #fbbf24; font-size: 13px; }
+    .ds-recall-customer { color: #fdba74; margin-top: 2px; }
+    .ds-recall-empty { color: #475569; font-size: 12px; text-align: center; padding: 16px; }
   `;
 
   // ── Clock ────────────────────────────────────────────────────────────────
@@ -542,24 +599,54 @@ export function QmsDisplay() {
             </div>
           </div>
 
-          {/* Counter Status */}
-          <div className="ds-counter-status">
-            <div className="ds-counter-status-title">Counter Status</div>
-            <div className="ds-counter-grid">
-              {counterStatus.length === 0 ? (
-                <div style={{ fontSize: 12, color: "#475569", textAlign: "center" }}>
-                  No counters configured
-                </div>
-              ) : (
-                counterStatus.map((counter) => (
-                  <div className="ds-counter-item" key={counter.name}>
-                    <span className="ds-counter-num">Counter {counter.name}</span>
-                    <span className={`ds-status-badge ${(counter.status || "Open").toLowerCase()}`}>
-                      {counter.status || "Open"}
-                    </span>
+          {/* Counter Status & Marked for Recall */}
+          <div style={{ flex: 1.7, display: "flex", overflow: "hidden" }}>
+            {/* Counter Status */}
+            <div className="ds-counter-status" style={{ flex: 1, borderRight: "1px solid #1e293b" }}>
+              <div className="ds-counter-status-title">Counter Status</div>
+              <div className="ds-counter-grid">
+                {counterStatus.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#475569", textAlign: "center" }}>
+                    No counters configured
                   </div>
-                ))
-              )}
+                ) : (
+                  counterStatus.map((counter) => (
+                    <div className="ds-counter-item" key={counter.name}>
+                      <span className="ds-counter-num">Counter {counter.name}</span>
+                      <span className={`ds-status-badge ${(counter.status || "Open").toLowerCase()}`}>
+                        {counter.status || "Open"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Marked for Recall */}
+            <div className="ds-recall-panel" style={{ flex: 1 }}>
+              <div className="ds-recall-title">
+                <Icon name="megaphone" style={{ marginRight: 4, color: "#f59e0b" }} />
+                For Recall
+              </div>
+              <div className="ds-recall-list">
+                {markedForRecall.length === 0 ? (
+                  <div className="ds-recall-empty">No customers marked for recall</div>
+                ) : (
+                  markedForRecall.map((item) => (
+                    <div className="ds-recall-item" key={item.name}>
+                      <div>
+                        <div className="ds-recall-ticket">{item.name.slice(-3)}</div>
+                        <div className="ds-recall-customer">
+                          {item.customer_name || "(No name)"} · C-{item.counter_number || "?"}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "10px", color: "#fdba74", fontWeight: 600 }}>
+                        {item.service_requested}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>

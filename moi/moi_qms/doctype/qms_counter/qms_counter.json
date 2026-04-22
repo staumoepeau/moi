@@ -9,7 +9,13 @@
  "field_order": [
   "counter_number",
   "status",
-  "column_break_fdsz"
+  "column_break_fdsz",
+  "section_capabilities",
+  "accept_individual",
+  "accept_business",
+  "column_break_cap",
+  "accept_cash",
+  "accept_cheque"
  ],
  "fields": [
   {
@@ -32,6 +38,40 @@
   {
    "fieldname": "column_break_fdsz",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_capabilities",
+   "fieldtype": "Section Break",
+   "label": "Counter Capabilities",
+   "description": "Uncheck to restrict this counter to specific customer types or payment methods. All checked = no restriction."
+  },
+  {
+   "default": "1",
+   "fieldname": "accept_individual",
+   "fieldtype": "Check",
+   "label": "Serve Individual Customers"
+  },
+  {
+   "default": "1",
+   "fieldname": "accept_business",
+   "fieldtype": "Check",
+   "label": "Serve Business Customers"
+  },
+  {
+   "fieldname": "column_break_cap",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "accept_cash",
+   "fieldtype": "Check",
+   "label": "Accept Cash Payment"
+  },
+  {
+   "default": "1",
+   "fieldname": "accept_cheque",
+   "fieldtype": "Check",
+   "label": "Accept Cheque Payment"
   }
  ],
  "grid_page_length": 50,
@@ -55,6 +95,18 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "QMS Admin",
+   "share": 0,
    "write": 1
   }
  ],

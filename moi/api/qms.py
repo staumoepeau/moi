@@ -48,7 +48,7 @@ def preview_ticket(service_name):
 
 
 @frappe.whitelist(allow_guest=True)
-def create_ticket(service_name):
+def create_ticket(service_name, customer_type=None, payment_method=None):
     """
     Create and save a ticket to the database.
     This is called ONLY when the user actually prints the ticket.
@@ -57,6 +57,8 @@ def create_ticket(service_name):
     doc = frappe.get_doc({
         "doctype": "QMS Ticket",
         "service_requested": service_name, # This must match the name of the 'QMS Service' record
+        "customer_type": customer_type,
+        "payment_method": payment_method,
         "status": "Waiting"
     })
     doc.insert(ignore_permissions=True)
@@ -66,38 +68,62 @@ def create_ticket(service_name):
 
 @frappe.whitelist()
 def call_next_ticket(status, service, counter_number, officer):
-    """Finds the oldest waiting ticket and assigns it to a counter by its number."""
-    
+    """Finds the oldest waiting ticket matching counter capabilities and assigns it."""
+
     # 1. Find the internal Record Name (ID) using the Counter Number field
     # This allows Counter Number '04' to link to record 'QMS-C.100'
-    counter_record_name = frappe.db.get_value("QMS Counter", 
+    counter_record_name = frappe.db.get_value("QMS Counter",
         {"counter_number": counter_number}, "name")
 
     if not counter_record_name:
         frappe.throw(f"Counter Number {counter_number} is not configured in the system.")
 
-    # 2. Get the oldest ticket with 'Waiting' status
-    ticket = frappe.get_all("QMS Ticket", 
-        filters={"status": status, "service_requested": service}, 
-        fields=["name"], 
-        order_by="creation asc", 
+    # 2. Read counter capabilities
+    counter_doc = frappe.get_doc("QMS Counter", counter_record_name)
+
+    allowed_types = []
+    if counter_doc.accept_individual:
+        allowed_types.append("Individual")
+    if counter_doc.accept_business:
+        allowed_types.append("Business")
+
+    allowed_methods = []
+    if counter_doc.accept_cash:
+        allowed_methods.append("Cash")
+    if counter_doc.accept_cheque:
+        allowed_methods.append("Cheque")
+
+    # 3. Build filters based on counter restrictions
+    filters = {"status": status, "service_requested": service}
+
+    # Only add type/method filters if counter is restricted (not all accepted)
+    if len(allowed_types) < 2:
+        filters["customer_type"] = ["in", allowed_types]
+    if len(allowed_methods) < 2:
+        filters["payment_method"] = ["in", allowed_methods]
+
+    # 4. Get the oldest ticket matching capabilities
+    ticket = frappe.get_all("QMS Ticket",
+        filters=filters,
+        fields=["name"],
+        order_by="creation asc",
         limit=1
     )
-    
-    if not ticket:
-        frappe.throw("No customers waiting in queue.")
 
-    # 3. Update the ticket
+    if not ticket:
+        frappe.throw("No customers waiting in queue for this counter's configuration.")
+
+    # 5. Update the ticket
     doc = frappe.get_doc("QMS Ticket", ticket[0].name)
     doc.status = "Called"
     doc.counter = counter_record_name  # Links to the actual DB ID (e.g., QMS-C.100)
     doc.called_at = now_datetime()
     doc.officer = officer
     doc.save(ignore_permissions=True)
-    
-    frappe.db.commit() 
-    
-    # 4. Notify Public Display
+
+    frappe.db.commit()
+
+    # 6. Notify Public Display
     frappe.publish_realtime("ticket_called", {
         "ticket_id": doc.name,
         "counter_number": counter_number # TV shows the physical number '04'
@@ -346,4 +372,22 @@ def get_completed_tickets(counter_number, limit=5):
     )
     for t in tickets:
         t["recall_count"] = frappe.db.count("QMS Ticket Recall", {"parent": t["name"]})
+    return tickets
+
+
+@frappe.whitelist(allow_guest=True)
+def get_marked_for_recall(limit=10):
+    """Returns all tickets currently marked for recall (for display screen)."""
+    tickets = frappe.get_all(
+        "QMS Ticket",
+        filters={"status": "Completed", "marked_for_recall": 1},
+        fields=["name", "customer_name", "service_requested", "recall_reason", "counter", "completed_at"],
+        order_by="completed_at desc",
+        limit=int(limit)
+    )
+    # Add counter number for display
+    for t in tickets:
+        if t.counter:
+            counter_num = frappe.db.get_value("QMS Counter", t.counter, "counter_number")
+            t["counter_number"] = counter_num or t.counter
     return tickets
