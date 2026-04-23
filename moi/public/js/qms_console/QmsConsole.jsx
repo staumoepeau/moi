@@ -276,26 +276,65 @@ export function QmsConsole() {
 		if (!activeTicket) return;
 		if (!activeTicket.customer_id || !activeTicket.customer_name)
 			return frappe.msgprint("Please enter ID and Name");
-		setLoading(true);
-		try {
-			await frappe.call({
-				method: "moi.api.qms.complete_service",
-				args: {
-					ticket_id: activeTicket.name,
-					customer_name: activeTicket.customer_name,
-					customer_id: activeTicket.customer_id,
-					officer: currentUser,
-				},
-			});
-			setActiveTicket(null);
-			setRecallCount(0);
-			fetchStats();
-			fetchQueueDashboard();
-			fetchCompletedTickets();
-			frappe.show_alert({ message: "Service Completed", indicator: "green" });
-		} finally {
-			setLoading(false);
-		}
+
+		// Ask about payment
+		frappe.confirm(
+			"Did customer make a payment?",
+			async () => {
+				// Yes - Ask payment method
+				frappe.prompt(
+					[{
+						fieldname: "payment_method",
+						fieldtype: "Select",
+						label: "Payment Method",
+						options: "Cash\nCheque",
+						reqd: 1
+					}],
+					async ({ payment_method }) => {
+						setLoading(true);
+						try {
+							await frappe.call({
+								method: "moi.api.qms.complete_service",
+								args: {
+									ticket_id: activeTicket.name,
+									customer_name: activeTicket.customer_name,
+									customer_id: activeTicket.customer_id,
+									officer: currentUser,
+									payment_method: payment_method,
+								},
+							});
+							setActiveTicket(null);
+							setRecallCount(0);
+							fetchStats();
+							fetchQueueDashboard();
+							fetchCompletedTickets();
+							frappe.show_alert({
+								message: `Service Completed • Payment: ${payment_method}`,
+								indicator: "green"
+							});
+						} finally {
+							setLoading(false);
+						}
+					},
+					"Select Payment Method",
+					"Confirm"
+				);
+			},
+			() => {
+				// No - Move to next customer
+				frappe.confirm(
+					"No payment received. Move to next customer?",
+					async () => {
+						setActiveTicket(null);
+						setRecallCount(0);
+						frappe.show_alert({
+							message: "Ready for next customer",
+							indicator: "orange"
+						});
+					}
+				);
+			}
+		);
 	};
 
 	const handleCompleteWithRecall = () => {

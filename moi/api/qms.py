@@ -128,7 +128,7 @@ def call_next_ticket(counter_number, officer):
     return doc.name
 
 @frappe.whitelist()
-def complete_service(ticket_id, customer_name, customer_id):
+def complete_service(ticket_id, customer_name, customer_id, payment_method=None):
     """Saves final details and completes the ticket."""
     doc = frappe.get_doc("QMS Ticket", ticket_id)
     doc.customer_name = customer_name
@@ -136,13 +136,16 @@ def complete_service(ticket_id, customer_name, customer_id):
     doc.officer = frappe.session.user
     doc.status = "Completed"
     doc.completed_at = now_datetime()
+    if payment_method:
+        doc.payment_method = payment_method
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
     # Notify display of status update
     frappe.publish_realtime("qms_update", {
         "ticket_id": ticket_id,
-        "status": "Completed"
+        "status": "Completed",
+        "payment_method": payment_method
     })
     return "Success"
 
