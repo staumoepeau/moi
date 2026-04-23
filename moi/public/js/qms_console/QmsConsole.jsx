@@ -187,6 +187,8 @@ export function QmsConsole() {
 			if (res.message) {
 				const ticketDetail = await frappe.db.get_doc("QMS Ticket", res.message);
 				setActiveTicket(ticketDetail);
+				setShowIntakeForm(true);
+				resetIntakeForm();
 			} else {
 				frappe.msgprint("No customers waiting in queue");
 			}
@@ -203,6 +205,14 @@ export function QmsConsole() {
 	const [completedTickets, setCompletedTickets] = React.useState([]);
 	const [recallPanelOpen, setRecallPanelOpen] = React.useState(false);
 	const [recallingId, setRecallingId] = React.useState(null);
+
+	// ── Intake form state ─────────────────────────────────────────────────────
+	const [showIntakeForm, setShowIntakeForm] = React.useState(true);
+	const [intakeStep, setIntakeStep] = React.useState(1); // 1: customer type, 2: payment, 3: payment method, 4: service
+	const [intakeCustomerType, setIntakeCustomerType] = React.useState(null);
+	const [intakePaymentMade, setIntakePaymentMade] = React.useState(null);
+	const [intakePaymentMethod, setIntakePaymentMethod] = React.useState(null);
+	const [intakeSelectedService, setIntakeSelectedService] = React.useState(null);
 
 	const handleRecall = async () => {
 		if (!activeTicket) return;
@@ -408,6 +418,48 @@ export function QmsConsole() {
 		} finally {
 			setRecallingId(null);
 		}
+	};
+
+	// ── Intake form handlers ──────────────────────────────────────────────────
+	const handleIntakeFormSubmit = async () => {
+		if (!activeTicket || !intakeCustomerType || !intakeSelectedService) {
+			return frappe.msgprint("Please complete all required fields");
+		}
+
+		setLoading(true);
+		try {
+			await frappe.client.set_value("QMS Ticket", activeTicket.name, {
+				customer_type: intakeCustomerType,
+				service_requested: intakeSelectedService,
+				payment_method: intakePaymentMade ? intakePaymentMethod : null,
+			});
+
+			setActiveTicket({
+				...activeTicket,
+				customer_type: intakeCustomerType,
+				service_requested: intakeSelectedService,
+				payment_method: intakePaymentMade ? intakePaymentMethod : null,
+			});
+
+			setShowIntakeForm(false);
+			frappe.show_alert({
+				message: "Customer intake complete",
+				indicator: "green"
+			});
+		} catch (e) {
+			console.error("Intake form error:", e);
+			frappe.msgprint("Error saving customer information");
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const resetIntakeForm = () => {
+		setIntakeStep(1);
+		setIntakeCustomerType(null);
+		setIntakePaymentMade(null);
+		setIntakePaymentMethod(null);
+		setIntakeSelectedService(null);
 	};
 
 	// ── Status helpers ────────────────────────────────────────────────────────
@@ -860,6 +912,83 @@ export function QmsConsole() {
       flex-shrink: 0;
     }
 
+    /* ── Intake Form ── */
+    .intake-form {
+      background: var(--card-bg, #fff);
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 400px;
+      margin: auto;
+    }
+    .intake-title {
+      font-size: 16px; font-weight: 700; color: var(--text-color, #1f272e);
+      margin-bottom: 4px;
+    }
+    .intake-subtitle {
+      font-size: 12px; color: var(--text-muted, #8d99a6);
+      margin-bottom: 20px;
+    }
+    .intake-buttons {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .intake-btn {
+      background: #fff; border: 2px solid #d1d8dd;
+      border-radius: 6px; padding: 12px 16px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      text-align: left; transition: all .15s;
+      color: var(--text-color, #1f272e);
+    }
+    .intake-btn:hover {
+      border-color: var(--primary, #2490ef);
+      background: #f7fafc;
+    }
+    .intake-btn.selected {
+      background: var(--primary, #2490ef);
+      color: #fff; border-color: var(--primary, #2490ef);
+    }
+    .intake-btn.yes { }
+    .intake-btn.no { }
+    .intake-select {
+      width: 100%; height: 40px;
+      padding: 0 12px;
+      border: 2px solid #d1d8dd;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text-color, #1f272e);
+      cursor: pointer;
+      outline: none;
+      transition: border-color .15s;
+      margin-bottom: 12px;
+    }
+    .intake-select:focus {
+      border-color: var(--primary, #2490ef);
+    }
+    .intake-btn-group {
+      display: flex; gap: 8px; margin-top: 16px;
+    }
+    .intake-btn-next {
+      flex: 1; background: var(--primary, #2490ef);
+      color: #fff; border: none; border-radius: 6px;
+      padding: 10px 16px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .intake-btn-next:hover:not(:disabled) {
+      background: #1a7fd4;
+    }
+    .intake-btn-next:disabled {
+      opacity: .5; cursor: not-allowed;
+    }
+    .intake-btn-back {
+      flex: 1; background: #fff; color: var(--text-color, #1f272e);
+      border: 1px solid #d1d8dd; border-radius: 6px;
+      padding: 10px 16px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .intake-btn-back:hover:not(:disabled) {
+      background: #f8fafc;
+    }
+
     @media (max-width: 1080px) {
       .qms-workspace {
         grid-template-columns: 1fr;
@@ -1168,6 +1297,135 @@ export function QmsConsole() {
 														))}
 													</div>
 												)}
+											</div>
+										)}
+									</div>
+								) : showIntakeForm ? (
+									<div className="intake-form">
+										<div className="ticket-subtitle">Ticket #{activeTicket.name.slice(-3)}</div>
+										<div className="intake-title">Customer Intake</div>
+										<div className="intake-subtitle">Please provide customer information</div>
+
+										{intakeStep === 1 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Customer Type</div>
+													<div className="intake-buttons">
+														<button
+															className={`intake-btn ${intakeCustomerType === "Individual" ? "selected" : ""}`}
+															onClick={() => setIntakeCustomerType("Individual")}
+														>
+															Individual
+														</button>
+														<button
+															className={`intake-btn ${intakeCustomerType === "Business" ? "selected" : ""}`}
+															onClick={() => setIntakeCustomerType("Business")}
+														>
+															Business
+														</button>
+													</div>
+												</div>
+												<div className="intake-btn-group">
+													<button
+														className="intake-btn-next"
+														onClick={() => intakeCustomerType && setIntakeStep(2)}
+														disabled={!intakeCustomerType}
+													>
+														Next
+													</button>
+												</div>
+											</div>
+										)}
+
+										{intakeStep === 2 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Did customer make a payment?</div>
+													<div className="intake-buttons">
+														<button
+															className={`intake-btn ${intakePaymentMade === true ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMade(true)}
+														>
+															Yes, Payment Made
+														</button>
+														<button
+															className={`intake-btn ${intakePaymentMade === false ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMade(false)}
+														>
+															No Payment
+														</button>
+													</div>
+												</div>
+												<div className="intake-btn-group">
+													<button className="intake-btn-back" onClick={() => setIntakeStep(1)}>Back</button>
+													<button
+														className="intake-btn-next"
+														onClick={() => intakePaymentMade !== null && setIntakeStep(intakePaymentMade ? 3 : 4)}
+														disabled={intakePaymentMade === null}
+													>
+														Next
+													</button>
+												</div>
+											</div>
+										)}
+
+										{intakeStep === 3 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Payment Method</div>
+													<div className="intake-buttons">
+														<button
+															className={`intake-btn ${intakePaymentMethod === "Cash" ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMethod("Cash")}
+														>
+															Cash
+														</button>
+														<button
+															className={`intake-btn ${intakePaymentMethod === "Cheque" ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMethod("Cheque")}
+														>
+															Cheque
+														</button>
+													</div>
+												</div>
+												<div className="intake-btn-group">
+													<button className="intake-btn-back" onClick={() => setIntakeStep(2)}>Back</button>
+													<button
+														className="intake-btn-next"
+														onClick={() => intakePaymentMethod && setIntakeStep(4)}
+														disabled={!intakePaymentMethod}
+													>
+														Next
+													</button>
+												</div>
+											</div>
+										)}
+
+										{intakeStep === 4 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<label style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, display: "block", color: "var(--text-color)" }}>Service Requested</label>
+													<select
+														className="intake-select"
+														value={intakeSelectedService || ""}
+														onChange={(e) => setIntakeSelectedService(e.target.value)}
+													>
+														<option value="">Select Service...</option>
+														{servicesList.map((svc) => (
+															<option key={svc} value={svc}>{svc}</option>
+														))}
+													</select>
+												</div>
+												<div className="intake-btn-group">
+													<button className="intake-btn-back" onClick={() => setIntakeStep(intakePaymentMade ? 3 : 2)}>Back</button>
+													<button
+														className="intake-btn-next"
+														onClick={handleIntakeFormSubmit}
+														disabled={!intakeSelectedService || loading}
+													>
+														{loading ? "Saving…" : "Complete Intake"}
+													</button>
+												</div>
 											</div>
 										)}
 									</div>
