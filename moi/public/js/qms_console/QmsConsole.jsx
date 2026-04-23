@@ -146,6 +146,13 @@ export function QmsConsole() {
 		return () => clearInterval(interval);
 	}, [counter, activeTicket?.name]);
 
+	// ── Intake form visibility sync ───────────────────────────────────────────
+	React.useEffect(() => {
+		if (activeTicket && activeTicket.customer_type && activeTicket.service_requested) {
+			setShowIntakeForm(false);
+		}
+	}, [activeTicket?.customer_type, activeTicket?.service_requested]);
+
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	const handleStatusChange = async (newStatus) => {
 		if (!counter) return frappe.msgprint("Please select a Counter first");
@@ -207,7 +214,12 @@ export function QmsConsole() {
 	const [recallingId, setRecallingId] = React.useState(null);
 
 	// ── Intake form state ─────────────────────────────────────────────────────
-	const [showIntakeForm, setShowIntakeForm] = React.useState(true);
+	const [showIntakeForm, setShowIntakeForm] = React.useState(() => {
+		const saved = localStorage.getItem("qms_activeTicket");
+		const ticket = saved ? JSON.parse(saved) : null;
+		// Show intake form only if ticket exists but customer_type and service_requested are not filled
+		return ticket && (!ticket.customer_type || !ticket.service_requested);
+	});
 	const [intakeStep, setIntakeStep] = React.useState(1); // 1: customer type, 2: payment, 3: payment method, 4: service
 	const [intakeCustomerType, setIntakeCustomerType] = React.useState(null);
 	const [intakePaymentMade, setIntakePaymentMade] = React.useState(null);
