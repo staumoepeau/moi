@@ -158,7 +158,13 @@ export function QmsTerminal() {
 			fields: ["name", "image", "background_color"],
 			filters: { is_active: 1 },
 			order_by: "name asc",
-		}).then(setServices).catch(console.error);
+		}).then(async (svcList) => {
+			// Fetch full documents to get service_items
+			const detailed = await Promise.all(
+				svcList.map(s => frappe.db.get_doc("QMS Service", s.name))
+			);
+			setServices(detailed);
+		}).catch(console.error);
 	}, []);
 
 	// Handle QR code scan - when ticket is scanned, navigate to feedback
@@ -1291,11 +1297,25 @@ export function QmsTerminal() {
 								<div
 									key={s.name}
 									className="kt-service-card"
-									style={{ backgroundColor: s.background_color || "#e8f4fd" }}
+									style={{ backgroundColor: s.background_color || "#e8f4fd", display: "flex", flexDirection: "column" }}
 									onClick={() => handleServiceSelect(s.name)}
 								>
 									{s.image && <i className={`fas ${s.image} watermark-icon`} aria-hidden="true" />}
-									<span className="kt-service-label">{s.name}</span>
+									<span className="kt-service-label" style={{ fontWeight: 700, marginBottom: 8 }}>{s.name}</span>
+									{s.service_items && s.service_items.length > 0 && (
+										<div style={{ fontSize: 11, textAlign: "left", flex: 1, overflow: "hidden" }}>
+											{s.service_items.slice(0, 3).map((item, idx) => (
+												<div key={idx} style={{ marginBottom: 4, color: "#555", lineHeight: 1.3 }}>
+													• {item.item_name}
+												</div>
+											))}
+											{s.service_items.length > 3 && (
+												<div style={{ color: "#999", fontSize: 10, marginTop: 4 }}>
+													+{s.service_items.length - 3} more
+												</div>
+											)}
+										</div>
+									)}
 								</div>
 							))}
 						</div>
