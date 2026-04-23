@@ -380,7 +380,10 @@ def get_marked_for_recall(limit=10):
 
 @frappe.whitelist()
 def reset_stuck_tickets():
-    """Resets tickets stuck in 'Called' status back to 'Waiting'.
+    """Resets tickets stuck in 'Called' status.
+
+    For tickets older than 5 minutes: marks as 'No Show'
+    For newer tickets: resets back to 'Waiting'
 
     This handles cases where:
     - A console crashed/closed while calling a ticket
@@ -389,20 +392,35 @@ def reset_stuck_tickets():
 
     Returns the count of tickets reset.
     """
+    from frappe.utils import get_datetime, now_datetime
+    import json
+
     stuck_tickets = frappe.get_all("QMS Ticket",
         filters={"status": "Called"},
-        fields=["name"])
+        fields=["name", "called_at", "officer", "counter"])
 
     if not stuck_tickets:
         return {"message": "No stuck tickets found", "count": 0}
 
     count = 0
+    current_time = now_datetime()
+    five_minutes_ago = current_time - frappe.utils.timedelta(minutes=5)
+
     for ticket in stuck_tickets:
         doc = frappe.get_doc("QMS Ticket", ticket.name)
-        doc.status = "Waiting"
+        called_at = get_datetime(ticket.called_at)
+
+        # If called more than 5 minutes ago, mark as No Show
+        if called_at < five_minutes_ago:
+            doc.status = "No Show"
+            doc.no_show_at = now_datetime()
+        else:
+            # Recent calls: reset back to Waiting
+            doc.status = "Waiting"
+            doc.called_at = None
+
         doc.counter = None
         doc.officer = None
-        doc.called_at = None
         doc.save(ignore_permissions=True)
         count += 1
 
@@ -410,7 +428,7 @@ def reset_stuck_tickets():
 
     frappe.publish_realtime("ticket_reset", {
         "count": count,
-        "message": f"Reset {count} stuck ticket(s) back to Waiting"
+        "message": f"Reset {count} stuck ticket(s)"
     })
 
-    return {"message": f"Reset {count} stuck ticket(s) back to queue", "count": count}
+    return {"message": f"Reset {count} stuck ticket(s). Old tickets marked as No Show, recent ones returned to queue.", "count": count}
