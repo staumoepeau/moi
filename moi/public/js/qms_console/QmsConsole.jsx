@@ -56,6 +56,7 @@ export function QmsConsole() {
 	const [countersList, setCountersList] = React.useState([]);
 	const [servicesList, setServicesList] = React.useState([]);
 	const [loading, setLoading] = React.useState(false);
+	const [calledTicket, setCalledTicket] = React.useState(null);
 
 	// ── Fetch per-service queue counts ──────────────────────────────────────
 	const fetchQueueDashboard = async (services) => {
@@ -87,6 +88,20 @@ export function QmsConsole() {
 		}
 	};
 
+	// ── Check if another ticket is being called ─────────────────────────────
+	const checkCalledTicket = async () => {
+		try {
+			const called = await frappe.db.get_list("QMS Ticket", {
+				filters: { status: "Called" },
+				fields: ["name", "officer", "counter"],
+				limit: 1
+			});
+			setCalledTicket(called.length > 0 ? called[0] : null);
+		} catch (e) {
+			console.error("Failed to check called ticket:", e);
+		}
+	};
+
 	// ── Fetch officer stats ──────────────────────────────────────────────────
 	const fetchStats = async () => {
 		if (!counter) return;
@@ -104,6 +119,7 @@ export function QmsConsole() {
 				filters: { status: "Waiting" },
 			});
 			setStats({ served: servedCount, waiting: waitingCount });
+			await checkCalledTicket();
 		} catch (e) {
 			console.error("Failed to fetch stats:", e);
 		}
@@ -138,10 +154,12 @@ export function QmsConsole() {
 	React.useEffect(() => {
 		fetchStats();
 		fetchCompletedTickets();
+		checkCalledTicket();
 		const interval = setInterval(() => {
 			fetchStats();
 			fetchQueueDashboard();
 			fetchCompletedTickets();
+			checkCalledTicket();
 		}, 20000);
 		return () => clearInterval(interval);
 	}, [counter, activeTicket?.name]);
@@ -178,6 +196,10 @@ export function QmsConsole() {
 	const handleCallNext = async () => {
 		if (status !== "Open") return frappe.msgprint("Counter must be OPEN to call customers");
 		if (!counter) return frappe.msgprint("Please select a Counter");
+		if (calledTicket) {
+			frappe.msgprint(`Ticket ${calledTicket.name} is already being served. Please finish before calling the next customer.`);
+			return;
+		}
 		setLoading(true);
 		try {
 			const res = await frappe.call({
@@ -187,11 +209,13 @@ export function QmsConsole() {
 			if (res.message) {
 				const ticketDetail = await frappe.db.get_doc("QMS Ticket", res.message);
 				setActiveTicket(ticketDetail);
+				await checkCalledTicket();
 			} else {
 				frappe.msgprint("No customers waiting in queue");
 			}
 		} catch (e) {
 			console.error(e);
+			await checkCalledTicket();
 		} finally {
 			setLoading(false);
 		}
@@ -251,6 +275,7 @@ export function QmsConsole() {
 			setRecallCount(0);
 			fetchStats();
 			fetchQueueDashboard();
+			await checkCalledTicket();
 			frappe.show_alert({ message: `Ticket ${activeTicket.name} marked as No Show`, indicator: "red" });
 		} catch (e) {
 			console.error(e);
@@ -289,6 +314,7 @@ export function QmsConsole() {
 			});
 			setActiveTicket(null);
 			setRecallCount(0);
+			await checkCalledTicket();
 			fetchStats();
 			fetchQueueDashboard();
 			fetchCompletedTickets();
@@ -320,6 +346,7 @@ export function QmsConsole() {
 					setActiveTicket(null);
 					setRecallCount(0);
 					fetchStats();
+											await checkCalledTicket();
 					fetchQueueDashboard();
 					fetchCompletedTickets();
 					frappe.show_alert({ message: "Ticket marked for recall", indicator: "orange" });
@@ -1062,7 +1089,7 @@ export function QmsConsole() {
 										<button
 											className="btn-call-giant"
 											onClick={handleCallNext}
-											disabled={loading || status !== "Open"}
+											disabled={loading || status !== "Open" || calledTicket}
 										>
 											{loading ? "Calling…" : "Call Next Customer"}
 										</button>
@@ -1070,6 +1097,12 @@ export function QmsConsole() {
 											<div className="status-warning">
 												<Icon name="alert" />
 												<span>Set status to <strong>Open</strong> to call tickets.</span>
+											</div>
+										)}
+										{calledTicket && (
+											<div className="status-warning" style={{ background: "#fef3e2", borderColor: "#f6c96b", marginTop: 12 }}>
+												<Icon name="megaphone" />
+												<span>Ticket <strong>#{calledTicket.name.slice(-3)}</strong> is being served. Please finish before calling next.</span>
 											</div>
 										)}
 										{completedTickets.length > 0 && (
