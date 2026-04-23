@@ -53,12 +53,17 @@ def create_ticket(service_name, customer_type=None, payment_method=None):
     Create and save a ticket to the database.
     This is called ONLY when the user actually prints the ticket.
     If user closes without printing, this is never called.
+    Automatically assigns a counter if one is configured for the service.
     """
+    # Get default counter from service if configured
+    default_counter = frappe.db.get_value("QMS Service", service_name, "default_counter")
+
     doc = frappe.get_doc({
         "doctype": "QMS Ticket",
         "service_requested": service_name, # This must match the name of the 'QMS Service' record
         "customer_type": customer_type,
         "payment_method": payment_method,
+        "counter": default_counter,  # Auto-assign if service has default_counter configured
         "status": "Waiting"
     })
     doc.insert(ignore_permissions=True)

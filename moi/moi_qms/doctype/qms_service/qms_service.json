@@ -14,6 +14,7 @@
   "column_break_amzo",
   "image",
   "background_color",
+  "default_counter",
   "is_active",
   "section_description",
   "service_items",
@@ -72,6 +73,13 @@
    "fieldname": "background_color",
    "fieldtype": "Color",
    "label": "Background Color"
+  },
+  {
+   "fieldname": "default_counter",
+   "fieldtype": "Link",
+   "label": "Default Counter",
+   "options": "QMS Counter",
+   "description": "Counter to automatically assign tickets for this service"
   },
   {
    "fieldname": "section_checklist",
