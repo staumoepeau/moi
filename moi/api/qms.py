@@ -67,66 +67,41 @@ def create_ticket(service_name, customer_type=None, payment_method=None):
 
 
 @frappe.whitelist()
-def call_next_ticket(status, service, counter_number, officer):
-    """Finds the oldest waiting ticket matching counter capabilities and assigns it."""
+def call_next_ticket(counter_number, officer):
+    """Calls the next customer in the queue by serial number (FIFO), regardless of service."""
 
     # 1. Find the internal Record Name (ID) using the Counter Number field
-    # This allows Counter Number '04' to link to record 'QMS-C.100'
     counter_record_name = frappe.db.get_value("QMS Counter",
         {"counter_number": counter_number}, "name")
 
     if not counter_record_name:
         frappe.throw(f"Counter Number {counter_number} is not configured in the system.")
 
-    # 2. Read counter capabilities
-    counter_doc = frappe.get_doc("QMS Counter", counter_record_name)
-
-    allowed_types = []
-    if counter_doc.accept_individual:
-        allowed_types.append("Individual")
-    if counter_doc.accept_business:
-        allowed_types.append("Business")
-
-    allowed_methods = []
-    if counter_doc.accept_cash:
-        allowed_methods.append("Cash")
-    if counter_doc.accept_cheque:
-        allowed_methods.append("Cheque")
-
-    # 3. Build filters based on counter restrictions
-    filters = {"status": status, "service_requested": service}
-
-    # Only add type/method filters if counter is restricted (not all accepted)
-    if len(allowed_types) < 2:
-        filters["customer_type"] = ["in", allowed_types]
-    if len(allowed_methods) < 2:
-        filters["payment_method"] = ["in", allowed_methods]
-
-    # 4. Get the oldest ticket matching capabilities
+    # 2. Get the oldest waiting ticket (FIFO by creation time, regardless of service)
     ticket = frappe.get_all("QMS Ticket",
-        filters=filters,
+        filters={"status": "Waiting"},
         fields=["name"],
         order_by="creation asc",
         limit=1
     )
 
     if not ticket:
-        frappe.throw("No customers waiting in queue for this counter's configuration.")
+        frappe.throw("No customers waiting in queue.")
 
-    # 5. Update the ticket
+    # 3. Update the ticket and assign to counter
     doc = frappe.get_doc("QMS Ticket", ticket[0].name)
     doc.status = "Called"
-    doc.counter = counter_record_name  # Links to the actual DB ID (e.g., QMS-C.100)
+    doc.counter = counter_record_name
     doc.called_at = now_datetime()
     doc.officer = officer
     doc.save(ignore_permissions=True)
 
     frappe.db.commit()
 
-    # 6. Notify Public Display
+    # 4. Notify Public Display
     frappe.publish_realtime("ticket_called", {
         "ticket_id": doc.name,
-        "counter_number": counter_number # TV shows the physical number '04'
+        "counter_number": counter_number
     })
 
     return doc.name

@@ -90,20 +90,19 @@ export function QmsConsole() {
 
 	// ── Fetch officer stats ──────────────────────────────────────────────────
 	const fetchStats = async () => {
-		if (!counter || !service) return;
+		if (!counter) return;
 		try {
 			const todayStart = frappe.datetime.get_today();
 			const servedCount = await frappe.db.count("QMS Ticket", {
 				filters: {
 					counter: counter,
 					officer: currentUser,
-					service_requested: service,
 					status: "Completed",
 					completed_at: [">=", todayStart],
 				},
 			});
 			const waitingCount = await frappe.db.count("QMS Ticket", {
-				filters: { service_requested: service, status: "Waiting" },
+				filters: { status: "Waiting" },
 			});
 			setStats({ served: servedCount, waiting: waitingCount });
 		} catch (e) {
@@ -146,13 +145,11 @@ export function QmsConsole() {
 			fetchCompletedTickets();
 		}, 20000);
 		return () => clearInterval(interval);
-	}, [counter, service, activeTicket?.name]);
+	}, [counter, activeTicket?.name]);
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	const handleStatusChange = async (newStatus) => {
 		if (!counter) return frappe.msgprint("Please select a Counter first");
-		if (newStatus === "Open" && !service)
-			return frappe.msgprint("Please select a Service before opening the counter");
 		setLoading(true);
 		try {
 			await frappe.call({
@@ -187,18 +184,18 @@ export function QmsConsole() {
 
 	const handleCallNext = async () => {
 		if (status !== "Open") return frappe.msgprint("Counter must be OPEN to call customers");
-		if (!counter || !service) return frappe.msgprint("Select Counter and Service");
+		if (!counter) return frappe.msgprint("Please select a Counter");
 		setLoading(true);
 		try {
 			const res = await frappe.call({
 				method: "moi.api.qms.call_next_ticket",
-				args: { status: "Waiting", counter_number: counter, service, officer: currentUser },
+				args: { counter_number: counter, officer: currentUser },
 			});
 			if (res.message) {
 				const ticketDetail = await frappe.db.get_doc("QMS Ticket", res.message);
 				setActiveTicket(ticketDetail);
 			} else {
-				frappe.msgprint("No customers in queue for this service");
+				frappe.msgprint("No customers waiting in queue");
 			}
 		} catch (e) {
 			console.error(e);
@@ -1063,7 +1060,7 @@ export function QmsConsole() {
 									<span className="value green">{stats.served}</span>
 								</div>
 								<div className="stat-block">
-									<span className="label">Waiting ({service || "—"})</span>
+									<span className="label">Waiting in Queue</span>
 									<span className="value red">{stats.waiting}</span>
 								</div>
 								{counter && (
