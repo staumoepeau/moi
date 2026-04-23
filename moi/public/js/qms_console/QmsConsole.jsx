@@ -50,7 +50,6 @@ export function QmsConsole() {
 	};
 
 	const [counter, setCounter] = React.useState(localStorage.getItem("qms_counter") || "");
-	const [service, setService] = React.useState(localStorage.getItem("qms_service") || "");
 	const [status, setStatus] = React.useState(localStorage.getItem("qms_status") || "Closed");
 	const [stats, setStats] = React.useState({ served: 0, waiting: 0 });
 	const [queueDashboard, setQueueDashboard] = React.useState([]);
@@ -154,7 +153,7 @@ export function QmsConsole() {
 		try {
 			await frappe.call({
 				method: "moi.api.qms.update_counter_status",
-				args: { counter_number: counter, status: newStatus, service, officer: currentUser },
+				args: { counter_number: counter, status: newStatus, service: "", officer: currentUser },
 			});
 			setStatus(newStatus);
 			localStorage.setItem("qms_status", newStatus);
@@ -174,12 +173,6 @@ export function QmsConsole() {
 		setCounter(val);
 		if (val) localStorage.setItem("qms_counter", val);
 		else localStorage.removeItem("qms_counter");
-	};
-
-	const handleServiceChange = (val) => {
-		setService(val);
-		if (val) localStorage.setItem("qms_service", val);
-		else localStorage.removeItem("qms_service");
 	};
 
 	const handleCallNext = async () => {
@@ -899,14 +892,6 @@ export function QmsConsole() {
 
 				<div className="qms-topbar-right qms-shell-actions">
 					<div className="qms-toolbar-group">
-						{/* Service */}
-						<div className="qms-inline-field">
-							<span className="qms-inline-label">Service</span>
-							<select className="qms-select service" value={service} onChange={(e) => handleServiceChange(e.target.value)}>
-								<option value="">Select...</option>
-								{servicesList.map((s) => <option key={s} value={s}>{s}</option>)}
-							</select>
-						</div>
 
 						{/* Counter */}
 						<div className="qms-inline-field">
