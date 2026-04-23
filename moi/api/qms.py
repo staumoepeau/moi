@@ -71,7 +71,6 @@ def call_next_ticket(counter_number, officer):
     """Calls the next customer in the queue by serial number (FIFO), regardless of service.
 
     Prevents concurrent calls: only one ticket can be in 'Called' status at a time.
-    Uses database locking to ensure atomicity.
     """
 
     # Find the internal Record Name (ID) using the Counter Number field
@@ -81,33 +80,31 @@ def call_next_ticket(counter_number, officer):
     if not counter_record_name:
         frappe.throw(f"Counter Number {counter_number} is not configured in the system.")
 
-    # Use transaction to ensure atomicity
-    with frappe.db.savepoint():
-        # 1. Check if another ticket is already being called (within transaction)
-        already_called = frappe.db.count("QMS Ticket",
-            filters={"status": "Called"})
+    # 1. Check if another ticket is already being called
+    already_called = frappe.db.count("QMS Ticket",
+        filters={"status": "Called"})
 
-        if already_called > 0:
-            frappe.throw("Another customer is already being called. Please finish serving them first.")
+    if already_called > 0:
+        frappe.throw("Another customer is already being called. Please finish serving them first.")
 
-        # 2. Get the oldest waiting ticket (FIFO by creation time, regardless of service)
-        ticket = frappe.get_all("QMS Ticket",
-            filters={"status": "Waiting"},
-            fields=["name"],
-            order_by="creation asc",
-            limit=1
-        )
+    # 2. Get the oldest waiting ticket (FIFO by creation time, regardless of service)
+    ticket = frappe.get_all("QMS Ticket",
+        filters={"status": "Waiting"},
+        fields=["name"],
+        order_by="creation asc",
+        limit=1
+    )
 
-        if not ticket:
-            frappe.throw("No customers waiting in queue.")
+    if not ticket:
+        frappe.throw("No customers waiting in queue.")
 
-        # 3. Update the ticket and assign to counter
-        doc = frappe.get_doc("QMS Ticket", ticket[0].name)
-        doc.status = "Called"
-        doc.counter = counter_record_name
-        doc.called_at = now_datetime()
-        doc.officer = officer
-        doc.save(ignore_permissions=True)
+    # 3. Update the ticket and assign to counter
+    doc = frappe.get_doc("QMS Ticket", ticket[0].name)
+    doc.status = "Called"
+    doc.counter = counter_record_name
+    doc.called_at = now_datetime()
+    doc.officer = officer
+    doc.save(ignore_permissions=True)
 
     frappe.db.commit()
 
