@@ -1072,11 +1072,6 @@ export function QmsConsole() {
 												<span>Set status to <strong>Open</strong> to call tickets.</span>
 											</div>
 										)}
-											>
-												<i className="octicon octicon-refresh" style={{ marginRight: 6 }} />
-												Reset Stuck Tickets
-											</button>
-										)}
 										{completedTickets.length > 0 && (
 											<div className="recall-completed-panel">
 												<button
