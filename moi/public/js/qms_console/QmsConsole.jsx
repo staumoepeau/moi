@@ -143,6 +143,20 @@ export function QmsConsole() {
 				const names = serviceRes.map((s) => s.name);
 				setServicesList(names);
 				fetchQueueDashboard(names);
+
+				// Auto-reset any stuck tickets on console load
+				const calledTickets = await frappe.db.get_list("QMS Ticket", {
+					filters: { status: "Called" },
+					fields: ["name"]
+				});
+				if (calledTickets.length > 0) {
+					console.log(`Found ${calledTickets.length} stuck ticket(s). Auto-resetting...`);
+					await frappe.call({
+						method: "moi.api.qms.reset_stuck_tickets",
+						async: true
+					});
+					await checkCalledTicket();
+				}
 			} catch (e) {
 				console.error("Failed to fetch data:", e);
 			}
