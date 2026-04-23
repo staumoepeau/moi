@@ -1352,19 +1352,19 @@ export function QmsConsole() {
 										{intakeStep === 2 && (
 											<div>
 												<div style={{ marginBottom: 12 }}>
-													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Did customer make a payment?</div>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Making any Payment?</div>
 													<div className="intake-buttons">
 														<button
 															className={`intake-btn ${intakePaymentMade === true ? "selected" : ""}`}
 															onClick={() => setIntakePaymentMade(true)}
 														>
-															Yes, Payment Made
+															Yes
 														</button>
 														<button
 															className={`intake-btn ${intakePaymentMade === false ? "selected" : ""}`}
 															onClick={() => setIntakePaymentMade(false)}
 														>
-															No Payment
+															No
 														</button>
 													</div>
 												</div>
