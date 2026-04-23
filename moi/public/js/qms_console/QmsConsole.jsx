@@ -1105,6 +1105,41 @@ export function QmsConsole() {
 												<span>Ticket <strong>#{calledTicket.name.slice(-3)}</strong> is being served. Please finish before calling next.</span>
 											</div>
 										)}
+										{calledTicket && (
+											<button
+												style={{
+													background: "#ffcccc", 
+													color: "#c0392b",
+													border: "1px solid #f08080",
+													borderRadius: "6px",
+													padding: "10px 16px",
+													marginTop: 12,
+													fontSize: "13px",
+													fontWeight: "600",
+													cursor: "pointer",
+													width: "100%"
+												}}
+												onClick={async () => {
+													if (confirm("Reset stuck tickets back to queue? This will move any 'Called' tickets back to Waiting.")) {
+														try {
+															const result = await frappe.call({
+																method: "moi.api.qms.reset_stuck_tickets"
+															});
+															await checkCalledTicket();
+															frappe.show_alert({
+																message: result.message.message,
+																indicator: "green"
+															});
+														} catch (e) {
+															console.error(e);
+														}
+													}
+												}}
+											>
+												<i className="octicon octicon-refresh" style={{ marginRight: 6 }} />
+												Reset Stuck Tickets
+											</button>
+										)}
 										{completedTickets.length > 0 && (
 											<div className="recall-completed-panel">
 												<button

@@ -379,3 +379,41 @@ def get_marked_for_recall(limit=10):
             counter_num = frappe.db.get_value("QMS Counter", t.counter, "counter_number")
             t["counter_number"] = counter_num or t.counter
     return tickets
+
+
+@frappe.whitelist()
+def reset_stuck_tickets():
+    """Resets tickets stuck in 'Called' status back to 'Waiting'.
+
+    This handles cases where:
+    - A console crashed/closed while calling a ticket
+    - A ticket was abandoned by an officer
+    - Network issues left a ticket in limbo
+
+    Returns the count of tickets reset.
+    """
+    stuck_tickets = frappe.get_all("QMS Ticket",
+        filters={"status": "Called"},
+        fields=["name"])
+
+    if not stuck_tickets:
+        return {"message": "No stuck tickets found", "count": 0}
+
+    count = 0
+    for ticket in stuck_tickets:
+        doc = frappe.get_doc("QMS Ticket", ticket.name)
+        doc.status = "Waiting"
+        doc.counter = None
+        doc.officer = None
+        doc.called_at = None
+        doc.save(ignore_permissions=True)
+        count += 1
+
+    frappe.db.commit()
+
+    frappe.publish_realtime("ticket_reset", {
+        "count": count,
+        "message": f"Reset {count} stuck ticket(s) back to Waiting"
+    })
+
+    return {"message": f"Reset {count} stuck ticket(s) back to queue", "count": count}
