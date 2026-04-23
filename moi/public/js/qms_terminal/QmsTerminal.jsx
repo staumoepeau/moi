@@ -1301,19 +1301,19 @@ export function QmsTerminal() {
 									onClick={() => handleServiceSelect(s.name)}
 								>
 									{s.image && <i className={`fas ${s.image} watermark-icon`} aria-hidden="true" />}
-									<span className="kt-service-label" style={{ fontWeight: 700, marginBottom: 8 }}>{s.name}</span>
+									<span className="kt-service-label" style={{ fontWeight: 700, marginBottom: 6, marginTop: 12 }}>{s.name}</span>
 									{s.service_items && s.service_items.length > 0 && (
 										<div style={{ fontSize: 11, textAlign: "left", flex: 1, overflow: "hidden" }}>
-											{s.service_items.slice(0, 3).map((item, idx) => (
-												<div key={idx} style={{ marginBottom: 4, color: "#555", lineHeight: 1.3 }}>
+											{s.service_items.slice(0, 5).map((item, idx) => (
+												<div key={idx} style={{ marginBottom: 4, color: "#555", lineHeight: 1.5 }}>
 													• {item.item_name}
 												</div>
 											))}
-											{s.service_items.length > 3 && (
+											{/* {s.service_items.length > 3 && (
 												<div style={{ color: "#999", fontSize: 10, marginTop: 4 }}>
 													+{s.service_items.length - 3} more
 												</div>
-											)}
+											)} */}
 										</div>
 									)}
 								</div>
