@@ -68,10 +68,11 @@ def create_ticket(service_name, customer_type=None, payment_method=None):
 
 @frappe.whitelist()
 def call_next_ticket(counter_number, officer):
-    """Calls the next customer in the queue by serial number (FIFO), regardless of service.
+    """Calls the next customer in the queue by serial number (FIFO).
 
-    Prevents concurrent calls: only one ticket can be in 'Called' status at a time.
+    Rate limiting: minimum 10 seconds between consecutive calls to prevent race conditions.
     """
+    from frappe.utils import get_datetime
 
     # Find the internal Record Name (ID) using the Counter Number field
     counter_record_name = frappe.db.get_value("QMS Counter",
@@ -80,14 +81,24 @@ def call_next_ticket(counter_number, officer):
     if not counter_record_name:
         frappe.throw(f"Counter Number {counter_number} is not configured in the system.")
 
-    # 1. Check if another ticket is already being called
-    already_called = frappe.db.count("QMS Ticket",
-        filters={"status": "Called"})
+    # 1. Check if the last ticket was called less than 10 seconds ago (rate limiter)
+    last_called = frappe.get_all("QMS Ticket",
+        filters={"status": ["in", ["Called", "Serving", "Completed"]]},
+        fields=["called_at"],
+        order_by="called_at desc",
+        limit=1
+    )
 
-    if already_called > 0:
-        frappe.throw("Another customer is already being called. Please finish serving them first.")
+    if last_called and last_called[0].called_at:
+        last_call_time = get_datetime(last_called[0].called_at)
+        current_time = now_datetime()
+        seconds_elapsed = (current_time - last_call_time).total_seconds()
 
-    # 2. Get the oldest waiting ticket (FIFO by creation time, regardless of service)
+        if seconds_elapsed < 10:
+            wait_time = int(10 - seconds_elapsed)
+            frappe.throw(f"Please wait {wait_time} second(s) before calling the next customer (minimum 10 second gap).")
+
+    # 2. Get the oldest waiting ticket (FIFO by creation time)
     ticket = frappe.get_all("QMS Ticket",
         filters={"status": "Waiting"},
         fields=["name"],
