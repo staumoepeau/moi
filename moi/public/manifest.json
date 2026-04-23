@@ -2,7 +2,7 @@
   "id": "/desk/qms_terminal",
   "name": "MOI Queue Management System",
   "short_name": "MOI QMS",
-  "description": "Queue Management System for Ministry of Infrastructure",
+  "description": "Queue Management System with service intake, payment processing, and offline support",
   "start_url": "/desk/qms_terminal",
   "scope": "/desk/qms_terminal",
   "display": "standalone",
@@ -13,6 +13,7 @@
   "lang": "en",
   "dir": "ltr",
   "categories": ["productivity", "utilities"],
+  "prefer_related_applications": false,
   "screenshots": [
     {
       "src": "/assets/moi/icons/icon-512.png",
@@ -58,7 +59,7 @@
       "name": "Get Ticket",
       "short_name": "Get Ticket",
       "description": "Get a ticket from the queue",
-      "url": "/desk/qms_terminal?action=service",
+      "url": "/desk/qms_terminal",
       "icons": [
         {
           "src": "/assets/moi/icons/icon-192.png",
@@ -68,10 +69,23 @@
       ]
     },
     {
-      "name": "Check Status",
-      "short_name": "Status",
-      "description": "Check your ticket status",
-      "url": "/desk/qms_terminal?action=feedback",
+      "name": "Submit Feedback",
+      "short_name": "Feedback",
+      "description": "Submit feedback about your service experience",
+      "url": "/desk/qms_terminal?view=feedback",
+      "icons": [
+        {
+          "src": "/assets/moi/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Officer Console",
+      "short_name": "Console",
+      "description": "Officer console for managing queue and customers",
+      "url": "/app/qms-console",
       "icons": [
         {
           "src": "/assets/moi/icons/icon-192.png",

@@ -1,8 +1,8 @@
 // QMS Terminal Service Worker
 // Enables offline functionality and background sync
 
-const CACHE_VERSION = 'qms-terminal-v1';
-const RUNTIME_CACHE = 'qms-runtime-v1';
+const CACHE_VERSION = 'qms-terminal-v2';
+const RUNTIME_CACHE = 'qms-runtime-v2';
 
 // Assets to cache on install
 const ASSETS_TO_CACHE = [
