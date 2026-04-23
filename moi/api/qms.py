@@ -53,17 +53,41 @@ def create_ticket(service_name, customer_type=None, payment_method=None):
     Create and save a ticket to the database.
     This is called ONLY when the user actually prints the ticket.
     If user closes without printing, this is never called.
-    Automatically assigns a counter if one is configured for the service.
+    Automatically assigns a counter if one is configured for the service AND
+    the counter's capabilities match the customer type and payment method.
     """
     # Get default counter from service if configured
     default_counter = frappe.db.get_value("QMS Service", service_name, "default_counter")
+    assigned_counter = None
+
+    # Validate counter capabilities match customer type and payment method
+    if default_counter:
+        counter_doc = frappe.get_doc("QMS Counter", default_counter)
+
+        # Check if counter accepts this customer type
+        can_serve_customer = False
+        if customer_type == "Individual" and counter_doc.accept_individual:
+            can_serve_customer = True
+        elif customer_type == "Business" and counter_doc.accept_business:
+            can_serve_customer = True
+
+        # Check if counter accepts this payment method
+        can_accept_payment = False
+        if payment_method == "Cash" and counter_doc.accept_cash:
+            can_accept_payment = True
+        elif payment_method == "Cheque" and counter_doc.accept_cheque:
+            can_accept_payment = True
+
+        # Only assign if both conditions are met
+        if can_serve_customer and can_accept_payment:
+            assigned_counter = default_counter
 
     doc = frappe.get_doc({
         "doctype": "QMS Ticket",
-        "service_requested": service_name, # This must match the name of the 'QMS Service' record
+        "service_requested": service_name,
         "customer_type": customer_type,
         "payment_method": payment_method,
-        "counter": default_counter,  # Auto-assign if service has default_counter configured
+        "counter": assigned_counter,  # Only assign if capabilities match
         "status": "Waiting"
     })
     doc.insert(ignore_permissions=True)
