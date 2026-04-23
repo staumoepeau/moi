@@ -50,7 +50,6 @@ export function QmsConsole() {
 	};
 
 	const [counter, setCounter] = React.useState(localStorage.getItem("qms_counter") || "");
-	const [service, setService] = React.useState(localStorage.getItem("qms_service") || "");
 	const [status, setStatus] = React.useState(localStorage.getItem("qms_status") || "Closed");
 	const [stats, setStats] = React.useState({ served: 0, waiting: 0 });
 	const [queueDashboard, setQueueDashboard] = React.useState([]);
@@ -90,20 +89,19 @@ export function QmsConsole() {
 
 	// ── Fetch officer stats ──────────────────────────────────────────────────
 	const fetchStats = async () => {
-		if (!counter || !service) return;
+		if (!counter) return;
 		try {
 			const todayStart = frappe.datetime.get_today();
 			const servedCount = await frappe.db.count("QMS Ticket", {
 				filters: {
 					counter: counter,
 					officer: currentUser,
-					service_requested: service,
 					status: "Completed",
 					completed_at: [">=", todayStart],
 				},
 			});
 			const waitingCount = await frappe.db.count("QMS Ticket", {
-				filters: { service_requested: service, status: "Waiting" },
+				filters: { status: "Waiting" },
 			});
 			setStats({ served: servedCount, waiting: waitingCount });
 		} catch (e) {
@@ -146,18 +144,23 @@ export function QmsConsole() {
 			fetchCompletedTickets();
 		}, 20000);
 		return () => clearInterval(interval);
-	}, [counter, service, activeTicket?.name]);
+	}, [counter, activeTicket?.name]);
+
+	// ── Intake form visibility sync ───────────────────────────────────────────
+	React.useEffect(() => {
+		if (activeTicket && activeTicket.customer_type && activeTicket.service_requested) {
+			setShowIntakeForm(false);
+		}
+	}, [activeTicket?.customer_type, activeTicket?.service_requested]);
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	const handleStatusChange = async (newStatus) => {
 		if (!counter) return frappe.msgprint("Please select a Counter first");
-		if (newStatus === "Open" && !service)
-			return frappe.msgprint("Please select a Service before opening the counter");
 		setLoading(true);
 		try {
 			await frappe.call({
 				method: "moi.api.qms.update_counter_status",
-				args: { counter_number: counter, status: newStatus, service, officer: currentUser },
+				args: { counter_number: counter, status: newStatus, service: "", officer: currentUser },
 			});
 			setStatus(newStatus);
 			localStorage.setItem("qms_status", newStatus);
@@ -179,26 +182,22 @@ export function QmsConsole() {
 		else localStorage.removeItem("qms_counter");
 	};
 
-	const handleServiceChange = (val) => {
-		setService(val);
-		if (val) localStorage.setItem("qms_service", val);
-		else localStorage.removeItem("qms_service");
-	};
-
 	const handleCallNext = async () => {
 		if (status !== "Open") return frappe.msgprint("Counter must be OPEN to call customers");
-		if (!counter || !service) return frappe.msgprint("Select Counter and Service");
+		if (!counter) return frappe.msgprint("Please select a Counter");
 		setLoading(true);
 		try {
 			const res = await frappe.call({
 				method: "moi.api.qms.call_next_ticket",
-				args: { status: "Waiting", counter_number: counter, service, officer: currentUser },
+				args: { counter_number: counter, officer: currentUser },
 			});
 			if (res.message) {
 				const ticketDetail = await frappe.db.get_doc("QMS Ticket", res.message);
 				setActiveTicket(ticketDetail);
+				setShowIntakeForm(true);
+				resetIntakeForm();
 			} else {
-				frappe.msgprint("No customers in queue for this service");
+				frappe.msgprint("No customers waiting in queue");
 			}
 		} catch (e) {
 			console.error(e);
@@ -213,6 +212,19 @@ export function QmsConsole() {
 	const [completedTickets, setCompletedTickets] = React.useState([]);
 	const [recallPanelOpen, setRecallPanelOpen] = React.useState(false);
 	const [recallingId, setRecallingId] = React.useState(null);
+
+	// ── Intake form state ─────────────────────────────────────────────────────
+	const [showIntakeForm, setShowIntakeForm] = React.useState(() => {
+		const saved = localStorage.getItem("qms_activeTicket");
+		const ticket = saved ? JSON.parse(saved) : null;
+		// Show intake form only if ticket exists but customer_type and service_requested are not filled
+		return ticket && (!ticket.customer_type || !ticket.service_requested);
+	});
+	const [intakeStep, setIntakeStep] = React.useState(1); // 1: customer type, 2: payment, 3: payment method, 4: service
+	const [intakeCustomerType, setIntakeCustomerType] = React.useState(null);
+	const [intakePaymentMade, setIntakePaymentMade] = React.useState(null);
+	const [intakePaymentMethod, setIntakePaymentMethod] = React.useState(null);
+	const [intakeSelectedService, setIntakeSelectedService] = React.useState(null);
 
 	const handleRecall = async () => {
 		if (!activeTicket) return;
@@ -286,26 +298,65 @@ export function QmsConsole() {
 		if (!activeTicket) return;
 		if (!activeTicket.customer_id || !activeTicket.customer_name)
 			return frappe.msgprint("Please enter ID and Name");
-		setLoading(true);
-		try {
-			await frappe.call({
-				method: "moi.api.qms.complete_service",
-				args: {
-					ticket_id: activeTicket.name,
-					customer_name: activeTicket.customer_name,
-					customer_id: activeTicket.customer_id,
-					officer: currentUser,
-				},
-			});
-			setActiveTicket(null);
-			setRecallCount(0);
-			fetchStats();
-			fetchQueueDashboard();
-			fetchCompletedTickets();
-			frappe.show_alert({ message: "Service Completed", indicator: "green" });
-		} finally {
-			setLoading(false);
-		}
+
+		// Ask about payment
+		frappe.confirm(
+			"Did customer make a payment?",
+			async () => {
+				// Yes - Ask payment method
+				frappe.prompt(
+					[{
+						fieldname: "payment_method",
+						fieldtype: "Select",
+						label: "Payment Method",
+						options: "Cash\nCheque",
+						reqd: 1
+					}],
+					async ({ payment_method }) => {
+						setLoading(true);
+						try {
+							await frappe.call({
+								method: "moi.api.qms.complete_service",
+								args: {
+									ticket_id: activeTicket.name,
+									customer_name: activeTicket.customer_name,
+									customer_id: activeTicket.customer_id,
+									officer: currentUser,
+									payment_method: payment_method,
+								},
+							});
+							setActiveTicket(null);
+							setRecallCount(0);
+							fetchStats();
+							fetchQueueDashboard();
+							fetchCompletedTickets();
+							frappe.show_alert({
+								message: `Service Completed • Payment: ${payment_method}`,
+								indicator: "green"
+							});
+						} finally {
+							setLoading(false);
+						}
+					},
+					"Select Payment Method",
+					"Confirm"
+				);
+			},
+			() => {
+				// No - Move to next customer
+				frappe.confirm(
+					"No payment received. Move to next customer?",
+					async () => {
+						setActiveTicket(null);
+						setRecallCount(0);
+						frappe.show_alert({
+							message: "Ready for next customer",
+							indicator: "orange"
+						});
+					}
+				);
+			}
+		);
 	};
 
 	const handleCompleteWithRecall = () => {
@@ -379,6 +430,48 @@ export function QmsConsole() {
 		} finally {
 			setRecallingId(null);
 		}
+	};
+
+	// ── Intake form handlers ──────────────────────────────────────────────────
+	const handleIntakeFormSubmit = async () => {
+		if (!activeTicket || !intakeCustomerType || !intakeSelectedService) {
+			return frappe.msgprint("Please complete all required fields");
+		}
+
+		setLoading(true);
+		try {
+			await frappe.client.set_value("QMS Ticket", activeTicket.name, {
+				customer_type: intakeCustomerType,
+				service_requested: intakeSelectedService,
+				payment_method: intakePaymentMade ? intakePaymentMethod : null,
+			});
+
+			setActiveTicket({
+				...activeTicket,
+				customer_type: intakeCustomerType,
+				service_requested: intakeSelectedService,
+				payment_method: intakePaymentMade ? intakePaymentMethod : null,
+			});
+
+			setShowIntakeForm(false);
+			frappe.show_alert({
+				message: "Customer intake complete",
+				indicator: "green"
+			});
+		} catch (e) {
+			console.error("Intake form error:", e);
+			frappe.msgprint("Error saving customer information");
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const resetIntakeForm = () => {
+		setIntakeStep(1);
+		setIntakeCustomerType(null);
+		setIntakePaymentMade(null);
+		setIntakePaymentMethod(null);
+		setIntakeSelectedService(null);
 	};
 
 	// ── Status helpers ────────────────────────────────────────────────────────
@@ -831,6 +924,83 @@ export function QmsConsole() {
       flex-shrink: 0;
     }
 
+    /* ── Intake Form ── */
+    .intake-form {
+      background: var(--card-bg, #fff);
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 400px;
+      margin: auto;
+    }
+    .intake-title {
+      font-size: 16px; font-weight: 700; color: var(--text-color, #1f272e);
+      margin-bottom: 4px;
+    }
+    .intake-subtitle {
+      font-size: 12px; color: var(--text-muted, #8d99a6);
+      margin-bottom: 20px;
+    }
+    .intake-buttons {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .intake-btn {
+      background: #fff; border: 2px solid #d1d8dd;
+      border-radius: 6px; padding: 12px 16px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      text-align: left; transition: all .15s;
+      color: var(--text-color, #1f272e);
+    }
+    .intake-btn:hover {
+      border-color: var(--primary, #2490ef);
+      background: #f7fafc;
+    }
+    .intake-btn.selected {
+      background: var(--primary, #2490ef);
+      color: #fff; border-color: var(--primary, #2490ef);
+    }
+    .intake-btn.yes { }
+    .intake-btn.no { }
+    .intake-select {
+      width: 100%; height: 40px;
+      padding: 0 12px;
+      border: 2px solid #d1d8dd;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text-color, #1f272e);
+      cursor: pointer;
+      outline: none;
+      transition: border-color .15s;
+      margin-bottom: 12px;
+    }
+    .intake-select:focus {
+      border-color: var(--primary, #2490ef);
+    }
+    .intake-btn-group {
+      display: flex; gap: 8px; margin-top: 16px;
+    }
+    .intake-btn-next {
+      flex: 1; background: var(--primary, #2490ef);
+      color: #fff; border: none; border-radius: 6px;
+      padding: 10px 16px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .intake-btn-next:hover:not(:disabled) {
+      background: #1a7fd4;
+    }
+    .intake-btn-next:disabled {
+      opacity: .5; cursor: not-allowed;
+    }
+    .intake-btn-back {
+      flex: 1; background: #fff; color: var(--text-color, #1f272e);
+      border: 1px solid #d1d8dd; border-radius: 6px;
+      padding: 10px 16px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .intake-btn-back:hover:not(:disabled) {
+      background: #f8fafc;
+    }
+
     @media (max-width: 1080px) {
       .qms-workspace {
         grid-template-columns: 1fr;
@@ -902,14 +1072,6 @@ export function QmsConsole() {
 
 				<div className="qms-topbar-right qms-shell-actions">
 					<div className="qms-toolbar-group">
-						{/* Service */}
-						<div className="qms-inline-field">
-							<span className="qms-inline-label">Service</span>
-							<select className="qms-select service" value={service} onChange={(e) => handleServiceChange(e.target.value)}>
-								<option value="">Select...</option>
-								{servicesList.map((s) => <option key={s} value={s}>{s}</option>)}
-							</select>
-						</div>
 
 						{/* Counter */}
 						<div className="qms-inline-field">
@@ -1063,7 +1225,7 @@ export function QmsConsole() {
 									<span className="value green">{stats.served}</span>
 								</div>
 								<div className="stat-block">
-									<span className="label">Waiting ({service || "—"})</span>
+									<span className="label">Waiting in Queue</span>
 									<span className="value red">{stats.waiting}</span>
 								</div>
 								{counter && (
@@ -1147,6 +1309,135 @@ export function QmsConsole() {
 														))}
 													</div>
 												)}
+											</div>
+										)}
+									</div>
+								) : showIntakeForm ? (
+									<div className="intake-form">
+										<div className="ticket-subtitle">Ticket #{activeTicket.name.slice(-3)}</div>
+										<div className="intake-title">Customer Intake</div>
+										<div className="intake-subtitle">Please provide customer information</div>
+
+										{intakeStep === 1 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Customer Type</div>
+													<div className="intake-buttons">
+														<button
+															className={`intake-btn ${intakeCustomerType === "Individual" ? "selected" : ""}`}
+															onClick={() => setIntakeCustomerType("Individual")}
+														>
+															Individual
+														</button>
+														<button
+															className={`intake-btn ${intakeCustomerType === "Business" ? "selected" : ""}`}
+															onClick={() => setIntakeCustomerType("Business")}
+														>
+															Business
+														</button>
+													</div>
+												</div>
+												<div className="intake-btn-group">
+													<button
+														className="intake-btn-next"
+														onClick={() => intakeCustomerType && setIntakeStep(2)}
+														disabled={!intakeCustomerType}
+													>
+														Next
+													</button>
+												</div>
+											</div>
+										)}
+
+										{intakeStep === 2 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Making any Payment?</div>
+													<div className="intake-buttons">
+														<button
+															className={`intake-btn ${intakePaymentMade === true ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMade(true)}
+														>
+															Yes
+														</button>
+														<button
+															className={`intake-btn ${intakePaymentMade === false ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMade(false)}
+														>
+															No
+														</button>
+													</div>
+												</div>
+												<div className="intake-btn-group">
+													<button className="intake-btn-back" onClick={() => setIntakeStep(1)}>Back</button>
+													<button
+														className="intake-btn-next"
+														onClick={() => intakePaymentMade !== null && setIntakeStep(intakePaymentMade ? 3 : 4)}
+														disabled={intakePaymentMade === null}
+													>
+														Next
+													</button>
+												</div>
+											</div>
+										)}
+
+										{intakeStep === 3 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-color)" }}>Payment Method</div>
+													<div className="intake-buttons">
+														<button
+															className={`intake-btn ${intakePaymentMethod === "Cash" ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMethod("Cash")}
+														>
+															Cash
+														</button>
+														<button
+															className={`intake-btn ${intakePaymentMethod === "Cheque" ? "selected" : ""}`}
+															onClick={() => setIntakePaymentMethod("Cheque")}
+														>
+															Cheque
+														</button>
+													</div>
+												</div>
+												<div className="intake-btn-group">
+													<button className="intake-btn-back" onClick={() => setIntakeStep(2)}>Back</button>
+													<button
+														className="intake-btn-next"
+														onClick={() => intakePaymentMethod && setIntakeStep(4)}
+														disabled={!intakePaymentMethod}
+													>
+														Next
+													</button>
+												</div>
+											</div>
+										)}
+
+										{intakeStep === 4 && (
+											<div>
+												<div style={{ marginBottom: 12 }}>
+													<label style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, display: "block", color: "var(--text-color)" }}>Service Requested</label>
+													<select
+														className="intake-select"
+														value={intakeSelectedService || ""}
+														onChange={(e) => setIntakeSelectedService(e.target.value)}
+													>
+														<option value="">Select Service...</option>
+														{servicesList.map((svc) => (
+															<option key={svc} value={svc}>{svc}</option>
+														))}
+													</select>
+												</div>
+												<div className="intake-btn-group">
+													<button className="intake-btn-back" onClick={() => setIntakeStep(intakePaymentMade ? 3 : 2)}>Back</button>
+													<button
+														className="intake-btn-next"
+														onClick={handleIntakeFormSubmit}
+														disabled={!intakeSelectedService || loading}
+													>
+														{loading ? "Saving…" : "Complete Intake"}
+													</button>
+												</div>
 											</div>
 										)}
 									</div>

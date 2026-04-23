@@ -698,6 +698,10 @@ export function QmsDashboard() {
 		<i className={`octicon octicon-${name} ${className}`} style={{ marginRight: 6, ...style }} aria-hidden="true" />
 	);
 
+	// Check if user has QMS Admin role
+	const userRoles = frappe.boot.user?.roles || [];
+	const isQmsAdmin = userRoles.includes("QMS Admin") || userRoles.includes("System Manager");
+
 	// ── Render ────────────────────────────────────────────────────────────────
 	return (
 		<div className="adm-root">
@@ -724,6 +728,21 @@ export function QmsDashboard() {
 					<button className="adm-btn btn btn-sm btn-primary" onClick={downloadBIReport} disabled={!byService.length}>
 						<Icon name="download" /> Export BI CSV
 					</button>
+
+					{/* Admin buttons - only show for QMS Admin */}
+					{isQmsAdmin && (
+						<>
+							<button className="adm-btn btn btn-sm btn-secondary" onClick={() => frappe.new_doc("QMS Counter")}>
+								<Icon name="plus" /> Add Counter
+							</button>
+							<button className="adm-btn btn btn-sm btn-secondary" onClick={() => frappe.new_doc("QMS Service")}>
+								<Icon name="plus" /> Add Service
+							</button>
+							<button className="adm-btn btn btn-sm btn-secondary" onClick={() => window.location.href = "/app/qms_admin"}>
+								<Icon name="settings" /> Admin Panel
+							</button>
+						</>
+					)}
 
 					{/* User menu */}
 					<div className="adm-user-wrap" ref={userMenuRef}>

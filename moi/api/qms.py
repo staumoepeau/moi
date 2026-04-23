@@ -67,72 +67,68 @@ def create_ticket(service_name, customer_type=None, payment_method=None):
 
 
 @frappe.whitelist()
-def call_next_ticket(status, service, counter_number, officer):
-    """Finds the oldest waiting ticket matching counter capabilities and assigns it."""
+def call_next_ticket(counter_number, officer):
+    """Calls the next customer in the queue by serial number (FIFO).
 
-    # 1. Find the internal Record Name (ID) using the Counter Number field
-    # This allows Counter Number '04' to link to record 'QMS-C.100'
+    Rate limiting: minimum 10 seconds between consecutive calls to prevent race conditions.
+    """
+    from frappe.utils import get_datetime
+
+    # Find the internal Record Name (ID) using the Counter Number field
     counter_record_name = frappe.db.get_value("QMS Counter",
         {"counter_number": counter_number}, "name")
 
     if not counter_record_name:
         frappe.throw(f"Counter Number {counter_number} is not configured in the system.")
 
-    # 2. Read counter capabilities
-    counter_doc = frappe.get_doc("QMS Counter", counter_record_name)
+    # 1. Check if the last ticket was called less than 10 seconds ago (rate limiter)
+    last_called = frappe.get_all("QMS Ticket",
+        filters={"status": ["in", ["Called", "Serving", "Completed"]]},
+        fields=["called_at"],
+        order_by="called_at desc",
+        limit=1
+    )
 
-    allowed_types = []
-    if counter_doc.accept_individual:
-        allowed_types.append("Individual")
-    if counter_doc.accept_business:
-        allowed_types.append("Business")
+    if last_called and last_called[0].called_at:
+        last_call_time = get_datetime(last_called[0].called_at)
+        current_time = now_datetime()
+        seconds_elapsed = (current_time - last_call_time).total_seconds()
 
-    allowed_methods = []
-    if counter_doc.accept_cash:
-        allowed_methods.append("Cash")
-    if counter_doc.accept_cheque:
-        allowed_methods.append("Cheque")
+        if seconds_elapsed < 10:
+            wait_time = int(10 - seconds_elapsed)
+            frappe.throw(f"Please wait {wait_time} second(s) before calling the next customer (minimum 10 second gap).")
 
-    # 3. Build filters based on counter restrictions
-    filters = {"status": status, "service_requested": service}
-
-    # Only add type/method filters if counter is restricted (not all accepted)
-    if len(allowed_types) < 2:
-        filters["customer_type"] = ["in", allowed_types]
-    if len(allowed_methods) < 2:
-        filters["payment_method"] = ["in", allowed_methods]
-
-    # 4. Get the oldest ticket matching capabilities
+    # 2. Get the oldest waiting ticket (FIFO by creation time)
     ticket = frappe.get_all("QMS Ticket",
-        filters=filters,
+        filters={"status": "Waiting"},
         fields=["name"],
         order_by="creation asc",
         limit=1
     )
 
     if not ticket:
-        frappe.throw("No customers waiting in queue for this counter's configuration.")
+        frappe.throw("No customers waiting in queue.")
 
-    # 5. Update the ticket
+    # 3. Update the ticket and assign to counter
     doc = frappe.get_doc("QMS Ticket", ticket[0].name)
     doc.status = "Called"
-    doc.counter = counter_record_name  # Links to the actual DB ID (e.g., QMS-C.100)
+    doc.counter = counter_record_name
     doc.called_at = now_datetime()
     doc.officer = officer
     doc.save(ignore_permissions=True)
 
     frappe.db.commit()
 
-    # 6. Notify Public Display
+    # 4. Notify Public Display
     frappe.publish_realtime("ticket_called", {
         "ticket_id": doc.name,
-        "counter_number": counter_number # TV shows the physical number '04'
+        "counter_number": counter_number
     })
 
     return doc.name
 
 @frappe.whitelist()
-def complete_service(ticket_id, customer_name, customer_id):
+def complete_service(ticket_id, customer_name, customer_id, payment_method=None):
     """Saves final details and completes the ticket."""
     doc = frappe.get_doc("QMS Ticket", ticket_id)
     doc.customer_name = customer_name
@@ -140,13 +136,16 @@ def complete_service(ticket_id, customer_name, customer_id):
     doc.officer = frappe.session.user
     doc.status = "Completed"
     doc.completed_at = now_datetime()
+    if payment_method:
+        doc.payment_method = payment_method
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
     # Notify display of status update
     frappe.publish_realtime("qms_update", {
         "ticket_id": ticket_id,
-        "status": "Completed"
+        "status": "Completed",
+        "payment_method": payment_method
     })
     return "Success"
 
@@ -391,3 +390,59 @@ def get_marked_for_recall(limit=10):
             counter_num = frappe.db.get_value("QMS Counter", t.counter, "counter_number")
             t["counter_number"] = counter_num or t.counter
     return tickets
+
+
+@frappe.whitelist()
+def reset_stuck_tickets():
+    """Resets tickets stuck in 'Called' status.
+
+    For tickets older than 5 minutes: marks as 'No Show'
+    For newer tickets: resets back to 'Waiting'
+
+    This handles cases where:
+    - A console crashed/closed while calling a ticket
+    - A ticket was abandoned by an officer
+    - Network issues left a ticket in limbo
+
+    Returns the count of tickets reset.
+    """
+    from frappe.utils import get_datetime, now_datetime
+    import json
+
+    stuck_tickets = frappe.get_all("QMS Ticket",
+        filters={"status": "Called"},
+        fields=["name", "called_at", "officer", "counter"])
+
+    if not stuck_tickets:
+        return {"message": "No stuck tickets found", "count": 0}
+
+    count = 0
+    current_time = now_datetime()
+    five_minutes_ago = current_time - frappe.utils.timedelta(minutes=5)
+
+    for ticket in stuck_tickets:
+        doc = frappe.get_doc("QMS Ticket", ticket.name)
+        called_at = get_datetime(ticket.called_at)
+
+        # If called more than 5 minutes ago, mark as No Show
+        if called_at < five_minutes_ago:
+            doc.status = "No Show"
+            doc.no_show_at = now_datetime()
+        else:
+            # Recent calls: reset back to Waiting
+            doc.status = "Waiting"
+            doc.called_at = None
+
+        doc.counter = None
+        doc.officer = None
+        doc.save(ignore_permissions=True)
+        count += 1
+
+    frappe.db.commit()
+
+    frappe.publish_realtime("ticket_reset", {
+        "count": count,
+        "message": f"Reset {count} stuck ticket(s)"
+    })
+
+    return {"message": f"Reset {count} stuck ticket(s). Old tickets marked as No Show, recent ones returned to queue.", "count": count}

@@ -4,7 +4,7 @@ import { useViewport } from "../qms_shared/useViewport";
 import { useMinistryBranding } from "../qms_shared/useMinistryBranding";
 import QRCode from "qrcode";
 
-// ── Views: "customer_type" | "payment_type" | "service" | "checklist" | "ticket" | "feedback" | "feedback_entry" | "thanks"
+// ── Views: "customer_type" | "payment_type" | "payment_method" | "service" | "checklist" | "ticket" | "feedback" | "feedback_entry" | "thanks"
 export function QmsTerminal() {
 	const [view, setView] = React.useState("customer_type");
 	const [services, setServices] = React.useState([]);
@@ -34,10 +34,12 @@ export function QmsTerminal() {
 
 	// Pre-service selection state
 	const [selectedCustomerType, setSelectedCustomerType] = React.useState(null);
+	const [paymentMade, setPaymentMade] = React.useState(null); // null, true, or false
 	const [selectedPaymentMethod, setSelectedPaymentMethod] = React.useState(null);
 
 	const resetPreService = () => {
 		setSelectedCustomerType(null);
+		setPaymentMade(null);
 		setSelectedPaymentMethod(null);
 	};
 
@@ -156,7 +158,13 @@ export function QmsTerminal() {
 			fields: ["name", "image", "background_color"],
 			filters: { is_active: 1 },
 			order_by: "name asc",
-		}).then(setServices).catch(console.error);
+		}).then(async (svcList) => {
+			// Fetch full documents to get service_items
+			const detailed = await Promise.all(
+				svcList.map(s => frappe.db.get_doc("QMS Service", s.name))
+			);
+			setServices(detailed);
+		}).catch(console.error);
 	}, []);
 
 	// Handle QR code scan - when ticket is scanned, navigate to feedback
@@ -1216,15 +1224,46 @@ export function QmsTerminal() {
 					</div>
 				)}
 
-				{/* ── Payment Method selection ── */}
+				{/* ── Payment Confirmation ── */}
 				{view === "payment_type" && (
 					<div className="kt-checklist-card" style={{ maxWidth: 640, textAlign: "center" }}>
 						<div className="kt-checklist-service-badge">
 							<Icon name="person" /> {selectedCustomerType}
 						</div>
+						<div className="kt-checklist-title">Making any Payment?</div>
+						<div className="kt-checklist-sub" style={{ marginBottom: 32 }}>
+							Will you be making a payment today?
+						</div>
+						<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+							{[
+								{ label: "Yes", color: "#f0fdf4", value: true },
+								{ label: "No", color: "#fef3c7", value: false },
+							].map(({ label, color, value }) => (
+								<div
+									key={label}
+									className="kt-service-card"
+									style={{ backgroundColor: color, height: cardH, cursor: "pointer" }}
+									onClick={() => {
+										setPaymentMade(value);
+										setView(value ? "payment_method" : "service");
+									}}
+								>
+									<span className="kt-service-label">{label}</span>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
+				{/* ── Payment Method selection (only if payment made) ── */}
+				{view === "payment_method" && (
+					<div className="kt-checklist-card" style={{ maxWidth: 640, textAlign: "center" }}>
+						<div className="kt-checklist-service-badge">
+							<Icon name="money" /> Payment Method
+						</div>
 						<div className="kt-checklist-title">Payment Method</div>
 						<div className="kt-checklist-sub" style={{ marginBottom: 32 }}>
-							How will you be paying today?
+							How will you be paying?
 						</div>
 						<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
 							{[
@@ -1258,11 +1297,25 @@ export function QmsTerminal() {
 								<div
 									key={s.name}
 									className="kt-service-card"
-									style={{ backgroundColor: s.background_color || "#e8f4fd" }}
+									style={{ backgroundColor: s.background_color || "#e8f4fd", display: "flex", flexDirection: "column" }}
 									onClick={() => handleServiceSelect(s.name)}
 								>
 									{s.image && <i className={`fas ${s.image} watermark-icon`} aria-hidden="true" />}
-									<span className="kt-service-label">{s.name}</span>
+									<span className="kt-service-label" style={{ fontWeight: 700, marginBottom: 6, marginTop: 12 }}>{s.name}</span>
+									{s.service_items && s.service_items.length > 0 && (
+										<div style={{ fontSize: 11, textAlign: "left", flex: 1, overflow: "hidden" }}>
+											{s.service_items.slice(0, 5).map((item, idx) => (
+												<div key={idx} style={{ marginBottom: 4, color: "#555", lineHeight: 1.5 }}>
+													• {item.item_name}
+												</div>
+											))}
+											{/* {s.service_items.length > 3 && (
+												<div style={{ color: "#999", fontSize: 10, marginTop: 4 }}>
+													+{s.service_items.length - 3} more
+												</div>
+											)} */}
+										</div>
+									)}
 								</div>
 							))}
 						</div>

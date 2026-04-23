@@ -1,0 +1,10 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#2490ef"/>
+
+  <!-- Letter Q in Arial Bold -->
+  <text x="256" y="340" font-family="Arial, sans-serif" font-size="280" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">Q</text>
+
+  <!-- Subtle inner circle border for definition -->
+  <circle cx="256" cy="256" r="240" fill="none" stroke="white" stroke-width="8" opacity="0.3"/>
+</svg>
